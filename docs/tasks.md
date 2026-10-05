@@ -37,9 +37,9 @@ Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `P
 ### T2. Database, models, seed
 `db.py` (engine; pragmas `foreign_keys=ON`, `busy_timeout=5000`; STRICT tables or the CHECK fallback; `BEGIN IMMEDIATE` transaction recipe), `models.py` (architecture §5), `seed.py` (idempotent).
 **Done when tests prove:**
-- [ ] Seed creates the users and products from architecture §5; running it twice doesn't duplicate.
-- [ ] The DB rejects: stock −1, qty 0, unit price < unit COGS on a line, an order whose split doesn't add up, negative payout, a second `cerbo_fee` ledger row for the same order, an unknown status/role/entry type, a non-integer money value.
-- [ ] Tests use a fresh temp **file** database per test (shared fixture).
+- [x] Seed creates the users and products from architecture §5; running it twice doesn't duplicate.
+- [x] The DB rejects: stock −1, qty 0, unit price < unit COGS on a line, an order whose split doesn't add up, negative payout, a second `cerbo_fee` ledger row for the same order, an unknown status/role/entry type, a non-integer money value.
+- [x] Tests use a fresh temp **file** database per test (shared fixture).
 
 ### T3. Auth seam
 `seams/auth.py`: `current_user` from `X-User-Id`, `require_role`, `require_order_access`. `GET /users`, `GET /me`.
