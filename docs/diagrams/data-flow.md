@@ -1,4 +1,4 @@
-_Last updated: 2026-10-05 — T0: only the GET /health request and JSON response._
+_Last updated: 2026-10-05 — T1: health check unchanged; money.py has no runtime data flow._
 
 # Data flow
 
@@ -18,3 +18,5 @@ flowchart LR
 4. **Not stored.** No database write or read.
 
 `frontend/src/App.tsx` is outside this flow. `frontend/src/smoke.test.ts` asserts `true === true` and does not touch the API or the component.
+
+`backend/app/domain/money.py` is unused at runtime. `validate_order`, `compute_split`, and `compute_fee` run only when `backend/tests/test_money.py` calls them. No endpoint accepts `LineInput` or returns `OrderSplit`.

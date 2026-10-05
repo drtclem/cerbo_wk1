@@ -25,14 +25,14 @@ Create `backend/` (uv project: FastAPI, Uvicorn, SQLAlchemy 2.0, Pydantic v2; de
 ### T1. Money module (`backend/app/domain/money.py`)
 Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `PricingError` with codes. Pure Python, no framework imports.
 **Done when tests prove:**
-- [ ] Every row of PRD §6.4 (fee and payout exact to the cent), including the $2.00 tie → 2¢, $0.66 → 0¢, $0.67 → 1¢.
-- [ ] 2 × $10.10 gives a fee of 15¢ (per-order rounding), not 16¢.
-- [ ] Price = COGS on every line → `NEGATIVE_PAYOUT`.
-- [ ] $100.00 / COGS $99.25 → accepted, payout 0. $100.00 / COGS $99.26 → `NEGATIVE_PAYOUT`.
-- [ ] A line priced below COGS → `LINE_BELOW_COGS` with the right `line_index`, even when the order total would be positive.
-- [ ] `EMPTY_ORDER`, `INVALID_QUANTITY` (0, −1), `INVALID_PRICE` (0, negative).
-- [ ] Hypothesis property: for random valid inputs, `subtotal == cogs_total + platform_fee + provider_payout` and `platform_fee == compute_fee(subtotal, fee_bps)`.
-- [ ] A test (or lint check) confirms `money.py` imports nothing from fastapi, sqlalchemy, or `app.*`.
+- [x] Every row of PRD §6.4 (fee and payout exact to the cent), including the $2.00 tie → 2¢, $0.66 → 0¢, $0.67 → 1¢.
+- [x] 2 × $10.10 gives a fee of 15¢ (per-order rounding), not 16¢.
+- [x] Price = COGS on every line → `NEGATIVE_PAYOUT`.
+- [x] $100.00 / COGS $99.25 → accepted, payout 0. $100.00 / COGS $99.26 → `NEGATIVE_PAYOUT`.
+- [x] A line priced below COGS → `LINE_BELOW_COGS` with the right `line_index`, even when the order total would be positive.
+- [x] `EMPTY_ORDER`, `INVALID_QUANTITY` (0, −1), `INVALID_PRICE` (0, negative).
+- [x] Hypothesis property: for random valid inputs, `subtotal == cogs_total + platform_fee + provider_payout` and `platform_fee == compute_fee(subtotal, fee_bps)`.
+- [x] A test (or lint check) confirms `money.py` imports nothing from fastapi, sqlalchemy, or `app.*`.
 
 ### T2. Database, models, seed
 `db.py` (engine; pragmas `foreign_keys=ON`, `busy_timeout=5000`; STRICT tables or the CHECK fallback; `BEGIN IMMEDIATE` transaction recipe), `models.py` (architecture §5), `seed.py` (idempotent).
