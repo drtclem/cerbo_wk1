@@ -129,6 +129,7 @@ _Running log of product and architecture decisions. Feeds `prd.md` and `architec
 - Rejected: check-then-update in application code (race condition: two requests can both pass the check).
 - **Test:** fire two concurrent payment calls at one order and expect exactly one paid order, one set of ledger rows, and one stub charge.
 - Why: Prevents double charges and double ledger writes (G1), each layer is small (G3), and it keeps the payment seam ready for real use (G2).
+- **Refinement (during T7/T8):** using the order ID as the key conflicted with retry-after-decline (AC3.3). The fake replays only the *same attempt* (same key, amount, and payment method); an approval is permanent; a decline followed by a different payment method is a new attempt. Double-pay protection still holds through layers 1 and 2. Production would use a per-attempt key (e.g. `order-12-attempt-2`), since real processors treat a reused key as the same request.
 - Known gap, for the writeup: with a real processor, the charge could succeed and then the DB write fail. Production would reconcile using processor webhooks. Out of scope with stubbed payments.
 
 ### D6. Inventory scope
@@ -206,7 +207,7 @@ _Running log of product and architecture decisions. Feeds `prd.md` and `architec
 | Seam | Stub in this build | Real version later |
 |---|---|---|
 | **Auth** | A role switcher in the UI sends a user ID header. The backend has one `current_user` dependency. **Every endpoint enforces role and ownership** (providers see only their orders, patients only theirs, admin only admin screens). | Real login (OAuth/SSO); patient magic links (unguessable per-order links) |
-| **Payments** | `PaymentProvider.charge(amount_cents, idempotency_key, payment_method)`. `FakePaymentProvider` approves by default; test tokens (e.g. `fake_card_decline`) simulate a decline. Same key → same result. | Stripe or similar, using the order ID as idempotency key; webhooks for reconciliation |
+| **Payments** | `PaymentProvider.charge(amount_cents, idempotency_key, payment_method)`. `FakePaymentProvider` approves by default; test tokens (e.g. `fake_card_decline`) simulate a decline. Same key + amount + method → same result; an approval is permanent; after a decline, a different method is a new attempt (see D5). | Stripe or similar, using the order ID as idempotency key; webhooks for reconciliation |
 | **Notifications** | `Notifier` interface; the fake logs to the console. The provider UI shows the patient's order link to copy. | Email/SMS service; Cerbo patient portal messaging |
 | **Fulfillment** | `Fulfillment.ship(order)` is called after payment commits; the fake logs "would ship order #N". | Warehouse/shipping partner integration |
 

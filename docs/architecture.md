@@ -270,7 +270,11 @@ class PaymentProvider(Protocol):
 
 class FakePaymentProvider:
     # Approves unless payment_method == "fake_card_decline".
-    # Remembers results by idempotency_key: same key → same result, no second charge.
+    # Replays the SAME attempt: same idempotency_key + amount + payment_method → stored result,
+    #   no second charge. An approval is permanent for that key. A stored decline followed by a
+    #   different payment_method is a new attempt (lets a patient retry after a decline, AC3.3).
+    #   Real processors treat a reused key as the same request; production would use a key per
+    #   attempt (e.g. order-12-attempt-2). See decisions.md D5.
     # Exposes charge_count for tests.
 ```
 

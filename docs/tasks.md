@@ -80,8 +80,8 @@ Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `P
 ### T7. Payment seam
 `seams/payment_provider.py`: `PaymentProvider` protocol and `FakePaymentProvider` (architecture §8), wired via `config.py`.
 **Done when tests prove:**
-- [ ] `fake_card_ok` approves with a ref; `fake_card_decline` declines with a reason.
-- [ ] Same idempotency key → same result, and `charge_count` doesn't increase.
+- [x] `fake_card_ok` approves with a ref; `fake_card_decline` declines with a reason.
+- [x] Same idempotency key + amount + payment method → same result, and `charge_count` doesn't increase. An approval is permanent; after a decline, a different payment method is a new attempt (decisions.md D5).
 
 ### T8. Pay endpoint ⭐ (most important task)
 `POST /orders/{id}/pay` implementing architecture §7 exactly.

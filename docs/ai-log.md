@@ -69,3 +69,15 @@ _Running notes for the "How you used AI" section of the writeup. Add an entry wh
 - **Result:** VERIFIED, reviewer clean. Orders snapshot product name, unit price, unit COGS, and fee rate at creation; reads use only stored amounts, and tests prove later catalog changes don't alter existing orders (AC2.5). Notifier is called only after commit, and a notifier failure doesn't lose the order.
 - **Plan gaps filled:** patient link is the relative path `/orders/{id}` (no public host configured); chose `INVALID_PATIENT` ("Patient must be a patient user.") and the message "Order cannot be cancelled." for `ORDER_NOT_CANCELLABLE`.
 - **Claude review note:** cancel is check-then-set (`if status != pending: …; status = cancelled`). Safe on SQLite because `BEGIN IMMEDIATE` holds the write lock from the read onward, but on Postgres it could race with a concurrent payment, the exact pattern D5 rejected. Folded into T8: make cancel a conditional `UPDATE … WHERE status = 'pending_payment'` and add a concurrent pay-vs-cancel test.
+
+### 2026-10-05 · T7 payment seam: idempotency vs. retry conflict · Cursor agent (asked) + Claude
+- **Agent surfaced a real design conflict:** D5 made the order ID the payment idempotency key ("same key → same result"), but AC3.3 requires a declined card to be retryable. Under a strict reading, the first decline would be replayed forever and block the retry.
+- **Decision:** the fake replays only the *same attempt* (same key + amount + payment method). An approval is permanent for that key; a stored decline followed by a different payment method counts as a new attempt.
+- **Why:** keeps both guarantees that matter (a paid order is never charged twice; double-clicks are harmless) and lets patients recover from a decline. Double-pay protection doesn't rely on the fake alone: the DB's conditional `UPDATE … WHERE status = 'pending_payment'` enforces it too.
+- **Known divergence, for the writeup:** real processors (e.g. Stripe) treat a reused key as the same request regardless of parameters. In production the key should be per attempt (e.g. `order-12-attempt-2`), with attempts recorded in the DB. Not built here.
+- **Lesson:** the planning docs had two rules that were each reasonable but conflicted at the edges; the agent asked instead of silently picking one.
+
+### 2026-10-05 · T7 payment seam (built) · Cursor agent + verifier/reviewer
+- **Result:** VERIFIED, reviewer clean. `FakePaymentProvider` built to the retry rule decided above; the only construction site is `config.build_payment_provider`, so swapping in a real processor touches one place (G2).
+- **Details chosen by the agent:** approval ref `fake_{idempotency_key}`; decline reason "Card declined." After a decline, a different payment method *or* a different amount counts as a new attempt; an approval stays sticky for the key.
+- **Docs kept in sync:** architecture §8, decisions D5/D10, and the T7 checkbox were updated to state this rule, so later reviews don't flag it as a violation of the original "same key → same result" wording.

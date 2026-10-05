@@ -1,8 +1,8 @@
-_Last updated: 2026-10-05 — T6: create writes orders and order_lines, then notifies; reads and cancel use the stored row._
+_Last updated: 2026-10-05 — T7: payment provider is stored at startup; no request calls charge._
 
 # Data flow
 
-Startup writes the seed into SQLite and keeps a session factory. `create_app` also stores one `FakeNotifier` on `app.state.notifier`. After that, HTTP data moves on the health check, the user list, `GET /me`, the catalog routes, `POST /orders/preview`, `POST /orders`, `GET /orders/{order_id}`, `GET /patient/orders`, and `POST /orders/{order_id}/cancel`. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. An order preview reads `provider_products` and `products.unit_cogs_cents`, validates the resolved lines, and returns an `OrderSplit`. It does not write. Create copies that snapshot onto `orders` and `order_lines`, commits, then calls `order_created`. Reads and cancel return stored order columns. Line totals use `line_amounts` on the stored line. The frontend renders a static heading and does not send or receive API data.
+Startup writes the seed into SQLite and keeps a session factory. `create_app` also stores one `FakeNotifier` on `app.state.notifier` and one `FakePaymentProvider` on `app.state.payment_provider`. No request reads the payment provider. After that, HTTP data moves on the health check, the user list, `GET /me`, the catalog routes, `POST /orders/preview`, `POST /orders`, `GET /orders/{order_id}`, `GET /patient/orders`, and `POST /orders/{order_id}/cancel`. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. An order preview reads `provider_products` and `products.unit_cogs_cents`, validates the resolved lines, and returns an `OrderSplit`. It does not write. Create copies that snapshot onto `orders` and `order_lines`, commits, then calls `order_created`. Reads and cancel return stored order columns. Line totals use `line_amounts` on the stored line. The frontend renders a static heading and does not send or receive API data.
 
 ```mermaid
 flowchart LR
@@ -13,6 +13,7 @@ flowchart LR
   sessionFactory --> getSession["get_session"]
   getSession -->|"Session"| sqliteFile
   buildNotifier["build_notifier"] -->|"one FakeNotifier"| fakeNotifier["app.state.notifier"]
+  buildPayment["build_payment_provider"] -->|"one FakePaymentProvider"| paymentState["app.state.payment_provider"]
 
   httpClient["HTTP client"] -->|"GET /health"| healthFn["health()"]
   healthFn -->|"{status: ok}"| httpClient
@@ -115,6 +116,8 @@ flowchart LR
 ## Startup
 
 `create_app` stores `database_url` on `app.state` before the lifespan runs. The default is `sqlite:///./cerbo.db` from `app.config`. The same function calls `build_notifier()` and stores that object on `app.state.notifier`. `build_notifier` returns a `FakeNotifier`. Nothing else constructs one. The lifespan does not replace the notifier.
+
+The same function calls `build_payment_provider()` and stores that object on `app.state.payment_provider`. `build_payment_provider` returns a `FakePaymentProvider` and is the only production constructor. The lifespan does not replace the provider. The startup diagram gives that node no outgoing edge: no route reads it, and nothing calls `charge`.
 
 1. `make_engine` opens that URL and attaches the SQLite connect and begin listeners.
 2. `init_db` calls `Base.metadata.create_all`, which creates `users`, `products`, `provider_products`, `orders`, `order_lines`, and `ledger_entries` when they are missing.
@@ -230,7 +233,9 @@ The branch detail is in `flows/orders.md`.
 
 ## Present in code, idle at runtime
 
-`ledger_entries` is created at startup and never inserted. No route sets `orders.payment_ref`, `orders.paid_at`, or `products.stock_qty` from an order. Payment, fulfillment, dashboard, audit, and admin product routes are not registered.
+`app.state.payment_provider` is the `FakePaymentProvider` from `build_payment_provider`. `charge(amount_cents, idempotency_key, payment_method)` would return a frozen `ChargeResult` (`approved`, `ref`, `decline_reason`). `fake_card_decline` declines with `ref` None and reason "Card declined." Every other method approves with `ref` `fake_{idempotency_key}`. The same key, amount, and method would replay the stored result and leave `charge_count` unchanged. An approval would stay sticky. A stored decline plus a different method, or the same method with a different amount, would be a new attempt. There is no lock. No route calls `charge`, so the attempt map stays empty. There is no payments service and no `POST /orders/{id}/pay`.
+
+`ledger_entries` is created at startup and never inserted. No route sets `orders.payment_ref`, `orders.paid_at`, or `products.stock_qty` from an order. Fulfillment, dashboard, audit, and admin product routes are not registered.
 
 `compute_split` and `compute_fee` run only when `validate_order` calls them. That happens on `PUT /provider/products/{product_id}` after the product is found, on `POST /orders/preview`, on `POST /orders` because `create_order` calls `preview_order`, and when `backend/tests/test_money.py` calls the money module directly.
 
