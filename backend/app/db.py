@@ -1,5 +1,7 @@
 import sqlite3
+from collections.abc import Iterator
 
+from fastapi import Request
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -33,3 +35,13 @@ def init_db(engine: Engine) -> None:
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def get_session(request: Request) -> Iterator[Session]:
+    """Request session. Closes without committing so callers commit their own writes."""
+    factory: sessionmaker[Session] = request.app.state.session_factory
+    session = factory()
+    try:
+        yield session
+    finally:
+        session.close()

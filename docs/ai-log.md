@@ -49,3 +49,8 @@ _Running notes for the "How you used AI" section of the writeup. Add an entry wh
 - **Design-critic earned its keep:** it caught that `PRAGMA foreign_keys` is silently ignored if run inside a transaction, so pragmas now run on the raw connection after autocommit is disabled. Without this, foreign keys could have been "on" in the code but off in practice.
 - **Agent's own test bug:** the first "seed doesn't commit" test opened a second connection, which blocked on the write lock and timed out. The agent diagnosed it and rewrote the test to roll back the same session. Good example of the concurrency setup working as intended, surfacing in a test.
 - **Reviewed by Claude:** schema constraints match architecture §5, including the DB-level split invariant and `UNIQUE(order_id, entry_type)` on the ledger.
+
+### 2026-10-05 · T3 auth seam · Cursor agent + design-critic/verifier/reviewer
+- **Result:** VERIFIED, reviewer clean on second pass. `X-User-Id` identifies the caller; `require_role` (403) and `require_order_access` (404, so other users' orders aren't revealed to exist) are ready for later endpoints. App startup now creates and seeds the database, closing the wiring T2 deferred.
+- **Reviewer catch:** an `X-User-Id` larger than SQLite's 64-bit integer limit crashed with a 500 instead of a clean 401. Fixed by validating before the query. Good example of the reviewer finding an edge case neither the plan nor the tests anticipated.
+- **Plan gap filled sensibly:** the architecture defined the error envelope but not the auth error codes. The agent chose `UNAUTHENTICATED` / `FORBIDDEN` / `NOT_FOUND`, and design-critic said to log the choice rather than edit the approved architecture doc.

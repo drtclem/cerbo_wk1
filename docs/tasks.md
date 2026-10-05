@@ -44,9 +44,9 @@ Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `P
 ### T3. Auth seam
 `seams/auth.py`: `current_user` from `X-User-Id`, `require_role`, `require_order_access`. `GET /users`, `GET /me`.
 **Done when tests prove:**
-- [ ] Missing or unknown `X-User-Id` → 401.
-- [ ] `require_role("provider")` blocks a patient → 403.
-- [ ] `GET /users` lists seed users with roles; `GET /me` returns the caller.
+- [x] Missing or unknown `X-User-Id` → 401.
+- [x] `require_role("provider")` blocks a patient → 403.
+- [x] `GET /users` lists seed users with roles; `GET /me` returns the caller.
 
 ---
 
