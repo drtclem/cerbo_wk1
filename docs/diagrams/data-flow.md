@@ -1,8 +1,8 @@
-_Last updated: 2026-10-05 — T7: payment provider is stored at startup; no request calls charge._
+_Last updated: 2026-10-05 — T8: pay charges, writes stock and ledger, then ships._
 
 # Data flow
 
-Startup writes the seed into SQLite and keeps a session factory. `create_app` also stores one `FakeNotifier` on `app.state.notifier` and one `FakePaymentProvider` on `app.state.payment_provider`. No request reads the payment provider. After that, HTTP data moves on the health check, the user list, `GET /me`, the catalog routes, `POST /orders/preview`, `POST /orders`, `GET /orders/{order_id}`, `GET /patient/orders`, and `POST /orders/{order_id}/cancel`. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. An order preview reads `provider_products` and `products.unit_cogs_cents`, validates the resolved lines, and returns an `OrderSplit`. It does not write. Create copies that snapshot onto `orders` and `order_lines`, commits, then calls `order_created`. Reads and cancel return stored order columns. Line totals use `line_amounts` on the stored line. The frontend renders a static heading and does not send or receive API data.
+Startup writes the seed into SQLite and keeps a session factory. `create_app` stores one `FakeNotifier` on `app.state.notifier`, one `FakePaymentProvider` on `app.state.payment_provider`, and one `FakeFulfillment` on `app.state.fulfillment`. `POST /orders/{order_id}/pay` reads the payment provider and the fulfillment stub. After startup, HTTP data moves on the health check, the user list, `GET /me`, the catalog routes, `POST /orders/preview`, `POST /orders`, `GET /orders/{order_id}`, `GET /patient/orders`, `POST /orders/{order_id}/cancel`, and `POST /orders/{order_id}/pay`. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. An order preview reads `provider_products` and `products.unit_cogs_cents`, validates the resolved lines, and returns an `OrderSplit`. It does not write. Create copies that snapshot onto `orders` and `order_lines`, commits, then calls `order_created`. Reads and cancel return stored order columns. Pay claims the order, decrements `products.stock_qty`, charges the stored subtotal, writes `payment_ref`, `paid_at`, and four `ledger_entries`, commits, then calls `ship`. Line totals use `line_amounts` on the stored line. The pay receipt is that same order JSON. Ledger rows are not on it. The frontend renders a static heading and does not send or receive API data.
 
 ```mermaid
 flowchart LR
@@ -11,9 +11,13 @@ flowchart LR
   lifespan -->|"seed then commit"| sqliteFile
   lifespan --> sessionFactory["session_factory"]
   sessionFactory --> getSession["get_session"]
-  getSession -->|"Session"| sqliteFile
+  getSession -->|"Session, BEGIN IMMEDIATE"| sqliteFile
   buildNotifier["build_notifier"] -->|"one FakeNotifier"| fakeNotifier["app.state.notifier"]
   buildPayment["build_payment_provider"] -->|"one FakePaymentProvider"| paymentState["app.state.payment_provider"]
+  buildFulfillment["build_fulfillment"] -->|"one FakeFulfillment"| fulfillState["app.state.fulfillment"]
+  paymentState -->|"charge"| payOrder["pay_order"]
+  fulfillState -->|"ship after commit"| payOrder
+  payOrder -->|"claim, stock, four ledger rows, commit"| sqliteFile
 
   httpClient["HTTP client"] -->|"GET /health"| healthFn["health()"]
   healthFn -->|"{status: ok}"| httpClient
@@ -62,11 +66,11 @@ flowchart LR
   postOrderPreview -->|"200 OrderSplit JSON"| httpClient
   postOrderPreview -->|"invalid body"| validationHandler
   ordersSvc -->|"create_order commit"| sqliteFile
-  ordersSvc -->|"cancel_order commit"| sqliteFile
+  ordersSvc -->|"UPDATE cancelled WHERE pending_payment"| sqliteFile
   ordersSvc -->|"order_created after commit"| fakeNotifier
 ```
 
-`POST /orders/preview` is the only order route in the diagram above, and that route does not write or notify. The `create_order` and `cancel_order` edges are the other two writes on `services/orders`. The next diagram shows which routes take them:
+`POST /orders/preview` does not write or notify. The `create_order` and `cancel_order` edges above are the writes on `services/orders`. `pay_order` is the write on `services/payments`: it reads `app.state.payment_provider` and `app.state.fulfillment`. The next diagram shows which routes take the order writes, including pay:
 
 ```mermaid
 flowchart LR
@@ -74,36 +78,50 @@ flowchart LR
   httpClient -->|"GET /orders/order_id"| getOrderDetail["get_order_detail"]
   httpClient -->|"GET /patient/orders"| getPatientOrders["get_patient_orders"]
   httpClient -->|"POST /orders/order_id/cancel"| postCancel["post_cancel_order"]
+  httpClient -->|"POST /orders/order_id/pay"| postPay["post_pay_order"]
 
   postOrder --> requireRole["require_role"]
   getOrderDetail --> requireRole
   getPatientOrders --> requireRole
   postCancel --> requireRole
+  postPay --> requireRole
   requireRole -->|"401 or 403"| apiError["APIError handler"]
 
   postOrder -->|"get_notifier"| fakeNotifier["app.state.notifier"]
+  postPay -->|"get_payment_provider"| paymentProvider["app.state.payment_provider"]
+  postPay -->|"get_fulfillment"| fakeFulfillment["app.state.fulfillment"]
   postOrder --> ordersSvc["services/orders"]
   getOrderDetail --> ordersSvc
   getPatientOrders --> ordersSvc
   postCancel --> ordersSvc
+  postPay --> paymentsSvc["pay_order"]
   getOrderDetail --> requireOrder["require_order_access"]
   getPatientOrders --> requireOrder
   postCancel --> requireOrder
+  postPay --> requireOrder
   requireOrder -->|"404 NOT_FOUND"| apiError
 
   ordersSvc --> getSession["get_session"]
-  getSession -->|"Session"| sqliteFile["SQLite cerbo.db"]
+  paymentsSvc --> getSession
+  getSession -->|"Session, BEGIN IMMEDIATE"| sqliteFile["SQLite cerbo.db"]
   ordersSvc -->|"preview_order reads enabled lines"| sqliteFile
   ordersSvc -->|"resolved lines"| validateOrder["validate_order"]
   validateOrder -->|"PricingError"| pricingHandler["PricingError handler"]
   pricingHandler -->|"422 error JSON"| httpClient
   ordersSvc -->|"insert orders and order_lines, commit"| sqliteFile
-  ordersSvc -->|"status cancelled and cancelled_at, commit"| sqliteFile
+  ordersSvc -->|"UPDATE cancelled WHERE pending_payment"| sqliteFile
   ordersSvc -->|"order_created /orders/id"| fakeNotifier
   ordersSvc -->|"stored line"| lineAmounts["line_amounts"]
+  paymentsSvc -->|"stored line"| lineAmounts
+  paymentsSvc -->|"claim paid, decrement stock_qty"| sqliteFile
+  paymentsSvc -->|"subtotal, key str order id"| paymentProvider
+  paymentProvider -->|"ChargeResult"| paymentsSvc
+  paymentsSvc -->|"payment_ref, paid_at, four ledger rows, commit"| sqliteFile
+  paymentsSvc -->|"ship after commit"| fakeFulfillment
 
   postOrder -->|"422 INVALID_PATIENT or PRODUCT_UNAVAILABLE"| apiError
   postOrder -->|"invalid body"| validationHandler["RequestValidationError handler"]
+  postPay -->|"invalid body"| validationHandler
   validationHandler -->|"422 VALIDATION_ERROR"| httpClient
   apiError -->|"error JSON"| httpClient
   postOrder -->|"200 order JSON"| httpClient
@@ -111,15 +129,20 @@ flowchart LR
   getPatientOrders -->|"200 order list"| httpClient
   postCancel -->|"200 order JSON"| httpClient
   postCancel -->|"409 ORDER_NOT_CANCELLABLE"| apiError
+  postPay -->|"200 order JSON"| httpClient
+  postPay -->|"409 ORDER_NOT_PAYABLE or OUT_OF_STOCK"| apiError
+  postPay -->|"402 PAYMENT_DECLINED"| apiError
 ```
 
 ## Startup
 
 `create_app` stores `database_url` on `app.state` before the lifespan runs. The default is `sqlite:///./cerbo.db` from `app.config`. The same function calls `build_notifier()` and stores that object on `app.state.notifier`. `build_notifier` returns a `FakeNotifier`. Nothing else constructs one. The lifespan does not replace the notifier.
 
-The same function calls `build_payment_provider()` and stores that object on `app.state.payment_provider`. `build_payment_provider` returns a `FakePaymentProvider` and is the only production constructor. The lifespan does not replace the provider. The startup diagram gives that node no outgoing edge: no route reads it, and nothing calls `charge`.
+The same function calls `build_payment_provider()` and stores that object on `app.state.payment_provider`. `build_payment_provider` returns a `FakePaymentProvider` and is the only production constructor. The lifespan does not replace the provider. `post_pay_order` reads it through `get_payment_provider`, and `pay_order` calls `charge`.
 
-1. `make_engine` opens that URL and attaches the SQLite connect and begin listeners.
+The same function calls `build_fulfillment()` and stores that object on `app.state.fulfillment`. `build_fulfillment` returns a `FakeFulfillment` and is the only constructor. The lifespan does not replace it. `post_pay_order` reads it through `get_fulfillment`, and `pay_order` calls `ship` after the payment commit.
+
+1. `make_engine` opens that URL. On connect it sets `PRAGMA foreign_keys=ON` and `PRAGMA busy_timeout=5000`. On begin it runs `BEGIN IMMEDIATE`. Pay uses that listener; it does not send its own `BEGIN`.
 2. `init_db` calls `Base.metadata.create_all`, which creates `users`, `products`, `provider_products`, `orders`, `order_lines`, and `ledger_entries` when they are missing.
 3. `seed(session)` stages rows that are not already present, matched by `users.name`, `products.sku`, and the `provider_products` pair. The lifespan then `commit`s. That writes Dr. Maya Patel (provider), Jane Doe and Sam Lee (patients), Cerbo Admin (admin), products MAG-GLY, D3-K2, OMEGA3, and PROBIO50, and Dr. Patel's four enabled `provider_products` at suggested prices. Seed does not insert `orders`, `order_lines`, or `ledger_entries`.
 4. `make_session_factory` is saved on `app.state.session_factory`.
@@ -227,16 +250,32 @@ The branch detail is in `flows/orders.md`.
 2. **Auth.** `require_role("provider")`. A patient or an admin is 403 `FORBIDDEN`. A missing or unknown user is 401 `UNAUTHENTICATED`.
 3. **Request validation.** A non-integer `order_id` is 422 `VALIDATION_ERROR` before the handler. Nothing is written.
 4. **Load and access.** The same `get_order` and `require_order_access` path as `GET /orders/{order_id}`. Missing or not owned is 404 `NOT_FOUND` "Not found", and `cancel_order` does not run.
-5. **Status.** `cancel_order` writes only when `status` is `pending_payment`. It sets `status` to `cancelled` and `cancelled_at` to UTC `YYYY-MM-DDTHH:MM:SSZ`, then commits. Any other status raises `OrderNotCancellable`. The route maps that to 409 `ORDER_NOT_CANCELLABLE`, message "Order cannot be cancelled." That path does not write.
+5. **Status.** `cancel_order` does not branch on the loaded `status` in Python. It runs `UPDATE orders SET status='cancelled', cancelled_at=? WHERE id=? AND status='pending_payment'` with `synchronize_session=False`. `cancelled_at` is UTC `YYYY-MM-DDTHH:MM:SSZ`. One row commits, then the service expires the order and loads it again for `present_order`. Zero rows rolls back and raises `OrderNotCancellable`. The route maps that to 409 `ORDER_NOT_CANCELLABLE`, message "Order cannot be cancelled." `paid`, `cancelled`, and a lost race all take that path. The committed row stays as it was.
 6. **Out.** HTTP 200 and the same order JSON as the get route, with `status` `cancelled` and the new `cancelled_at`. Line amounts still come from the stored lines through `line_amounts`.
 7. **Unchanged.** No notifier call. `products.stock_qty` is unchanged. No `ledger_entries` row is inserted. `payment_ref` and `paid_at` stay as they were.
 
-## Present in code, idle at runtime
+## POST /orders/{order_id}/pay
 
-`app.state.payment_provider` is the `FakePaymentProvider` from `build_payment_provider`. `charge(amount_cents, idempotency_key, payment_method)` would return a frozen `ChargeResult` (`approved`, `ref`, `decline_reason`). `fake_card_decline` declines with `ref` None and reason "Card declined." Every other method approves with `ref` `fake_{idempotency_key}`. The same key, amount, and method would replay the stored result and leave `charge_count` unchanged. An approval would stay sticky. A stored decline plus a different method, or the same method with a different amount, would be a new attempt. There is no lock. No route calls `charge`, so the attempt map stays empty. There is no payments service and no `POST /orders/{id}/pay`.
+The branch detail is in `flows/pay.md`. This section is what moves.
 
-`ledger_entries` is created at startup and never inserted. No route sets `orders.payment_ref`, `orders.paid_at`, or `products.stock_qty` from an order. Fulfillment, dashboard, audit, and admin product routes are not registered.
+1. **In.** `POST /orders/{order_id}/pay`, header `X-User-Id`, and a JSON body `{"payment_method": "fake_card_ok" | "fake_card_decline"}`.
+2. **Auth.** `require_role("patient")`. A provider or an admin is 403 `FORBIDDEN`. A missing or unknown user is 401 `UNAUTHENTICATED`.
+3. **Request validation.** `PayRequest` is strict. `payment_method` must be one of those two strings. A non-integer `order_id` or any other body is 422 `VALIDATION_ERROR` before `pay_order`. Nothing is written.
+4. **Load and access.** The same `get_order` path as the get route, then `require_order_access`. Missing is 404 `NOT_FOUND`. A patient who is not that order's `patient_id` is the same 404. `pay_order` does not run.
+5. **Session.** `pay_order` uses this request's session. The first SQL begins a transaction, and `db.make_engine`'s `begin` listener runs `BEGIN IMMEDIATE`. There is no second session.
+6. **Already paid.** `status` `paid` returns `present_order` of the stored row and rolls back. `charge` is not called. `ship` is not called. A replay of a paid order is this path.
+7. **Cancelled.** Any other status than `paid` or `pending_payment` rolls back and becomes 409 `ORDER_NOT_PAYABLE`, message "Order cannot be paid." Nothing is charged.
+8. **Claim.** `UPDATE orders SET status='paid' WHERE id=? AND status='pending_payment'` with `synchronize_session=False`. Zero rows rolls back, expires the session, and the next attempt reads again. A paid re-read returns the receipt and does not charge or ship. A cancelled re-read is 409 and does not charge. A row that is still `pending_payment` tries the claim again, up to three attempts. Three lost claims become 409 `ORDER_NOT_PAYABLE`.
+9. **Stock.** For each stored line, `UPDATE products SET stock_qty=stock_qty-qty WHERE id=? AND stock_qty>=qty`, also with `synchronize_session=False`. Any line with zero rows rolls back the claim and the stock changes. The route returns 409 `OUT_OF_STOCK`, message "Not enough stock." `charge` is not called.
+10. **Charge.** `charge(subtotal_cents, idempotency_key=str(order.id), payment_method)`. `fake_card_decline` declines. A decline, or an approved result with `ref` null, rolls back and returns 402 `PAYMENT_DECLINED`, message "Payment was declined." `status` stays `pending_payment`. `ship` is not called. `fake_card_ok` approves with `ref` `fake_{order.id}`.
+11. **Ledger.** The service sets `payment_ref` and `paid_at`, then inserts four `ledger_entries` from the stored order columns: `patient_payment` = `subtotal_cents`, `cerbo_cogs` = `cogs_total_cents`, `cerbo_fee` = `platform_fee_cents`, `provider_payable` = `provider_payout_cents`. `created_at` on each row is `paid_at`. One `commit` stores the claim, the stock decrements, those order fields, and the four ledger rows.
+12. **Ship.** After the commit, `FakeFulfillment.ship` prints `would ship order #{id}` and appends the order id to `calls`. An exception is logged. The receipt is still returned. The commit is not undone.
+13. **Out.** HTTP 200 and the same order JSON as `GET /orders/{order_id}`. Ledger rows are not on that body.
 
-`compute_split` and `compute_fee` run only when `validate_order` calls them. That happens on `PUT /provider/products/{product_id}` after the product is found, on `POST /orders/preview`, on `POST /orders` because `create_order` calls `preview_order`, and when `backend/tests/test_money.py` calls the money module directly.
+## Not registered
 
-`line_amounts` also runs from `present_order` for every order JSON response. Those display amounts are `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. They are not stored on `order_lines`.
+The provider dashboard, `GET /orders/{id}/audit`, and admin product routes are not registered.
+
+`compute_split` and `compute_fee` run only when `validate_order` calls them. That happens on `PUT /provider/products/{product_id}` after the product is found, on `POST /orders/preview`, and on `POST /orders` because `create_order` calls `preview_order`. Pay does not call `validate_order`. `backend/tests/test_money.py` also calls the money module directly.
+
+`line_amounts` runs from `present_order` for every order JSON response, including the pay receipt. Those display amounts are `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. They are not stored on `order_lines`. Ledger rows are not part of that JSON.

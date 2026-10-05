@@ -86,13 +86,13 @@ Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `P
 ### T8. Pay endpoint ⭐ (most important task)
 `POST /orders/{id}/pay` implementing architecture §7 exactly.
 **Done when tests prove:**
-- [ ] Happy path: status `paid`, `paid_at` and `payment_ref` set, stock decremented by each line's qty, exactly 4 ledger rows; `patient_payment == subtotal`; the three allocations sum to it and equal the order's `cogs_total`, `platform_fee`, `provider_payout` (AC4.2, AC4.3); fulfillment fake called once.
-- [ ] Decline: 402; order still `pending_payment`; stock unchanged; 0 ledger rows; a retry with `fake_card_ok` then succeeds.
-- [ ] Out of stock (order 2 × Probiotic with stock 1): 409 `OUT_OF_STOCK`; nothing charged (`charge_count` 0) or written.
-- [ ] Paying an already-paid order returns 200 with the same receipt; still one charge and 4 ledger rows.
-- [ ] **Concurrent double pay** (two threads, same order): one charge, one paid order, 4 ledger rows; both responses succeed with the same receipt.
-- [ ] **Last unit race** (two patients, two orders, one Probiotic left, concurrent): exactly one succeeds; stock ends at 0, never negative.
-- [ ] Cancelled order → 409 `ORDER_NOT_PAYABLE`. Another patient → 404. A provider → 403.
+- [x] Happy path: status `paid`, `paid_at` and `payment_ref` set, stock decremented by each line's qty, exactly 4 ledger rows; `patient_payment == subtotal`; the three allocations sum to it and equal the order's `cogs_total`, `platform_fee`, `provider_payout` (AC4.2, AC4.3); fulfillment fake called once.
+- [x] Decline: 402; order still `pending_payment`; stock unchanged; 0 ledger rows; a retry with `fake_card_ok` then succeeds.
+- [x] Out of stock (order 2 × Probiotic with stock 1): 409 `OUT_OF_STOCK`; nothing charged (`charge_count` 0) or written.
+- [x] Paying an already-paid order returns 200 with the same receipt; still one charge and 4 ledger rows.
+- [x] **Concurrent double pay** (two threads, same order): one charge, one paid order, 4 ledger rows; both responses succeed with the same receipt.
+- [x] **Last unit race** (two patients, two orders, one Probiotic left, concurrent): exactly one succeeds; stock ends at 0, never negative.
+- [x] Cancelled order → 409 `ORDER_NOT_PAYABLE`. Another patient → 404. A provider → 403.
 
 ### T9. Reporting: dashboard and audit
 `GET /provider/dashboard`, `GET /orders/{id}/audit` (architecture §6), totals sourced from `ledger_entries`.

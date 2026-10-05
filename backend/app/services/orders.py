@@ -2,8 +2,10 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.domain.money import FEE_BPS_DEFAULT, LineInput, OrderSplit, line_amounts, validate_order
@@ -167,12 +169,25 @@ def list_patient_orders(session: Session, patient_id: int) -> list[Order]:
 
 
 def cancel_order(session: Session, order: Order) -> OrderView:
-    if order.status != "pending_payment":
+    """Cancel only a pending order. A lost race leaves the committed row alone."""
+    cancelled = cast(
+        CursorResult[Any],
+        session.execute(
+            update(Order)
+            .where(Order.id == order.id, Order.status == "pending_payment")
+            .values(status="cancelled", cancelled_at=_utc_now())
+            .execution_options(synchronize_session=False)
+        ),
+    )
+    if cancelled.rowcount != 1:
+        session.rollback()
         raise OrderNotCancellable
-    order.status = "cancelled"
-    order.cancelled_at = _utc_now()
     session.commit()
-    return present_order(order, order_lines(session, order.id))
+    session.expire(order)
+    fresh = session.get(Order, order.id)
+    if fresh is None:
+        raise OrderNotCancellable
+    return present_order(fresh, order_lines(session, fresh.id))
 
 
 def _require_patient(session: Session, patient_id: int) -> None:

@@ -1,8 +1,8 @@
-_Last updated: 2026-10-05 — T6: a provider creates or cancels an order; a provider or patient reads the stored snapshot._
+_Last updated: 2026-10-05 — T8: cancel is a conditional update; zero rows rolls back._
 
 # Create, view, and cancel
 
-`POST /orders/preview` is unchanged and does not write. See `flows/order-preview.md`. The routes below share `services/orders` and the error envelope from `app.main`. `get_session` opens a `Session` and closes it with no extra commit. `create_order` and `cancel_order` commit inside the service.
+`POST /orders/preview` is unchanged and does not write. See `flows/order-preview.md`. Pay is in `flows/pay.md`. The routes below share `services/orders` and the error envelope from `app.main`. `get_session` opens a `Session` and closes it with no extra commit. `create_order` and `cancel_order` commit inside the service. The engine `begin` listener runs `BEGIN IMMEDIATE` on that session.
 
 `patient_link` is always `/orders/{id}`.
 
@@ -125,7 +125,7 @@ sequenceDiagram
 
 ## Cancel
 
-`POST /orders/{order_id}/cancel` depends on `require_role("provider")`, loads the order, then `require_order_access`. `cancel_order` writes only when `status` is `pending_payment`.
+`POST /orders/{order_id}/cancel` depends on `require_role("provider")`, loads the order, then `require_order_access`. `cancel_order` does not read `status` in Python. It updates only a row that is still `pending_payment`.
 
 ```mermaid
 sequenceDiagram
@@ -133,7 +133,7 @@ sequenceDiagram
   participant Route as "POST /orders/order_id/cancel"
   participant Auth as require_role
   participant Access as require_order_access
-  participant Svc as "services/orders"
+  participant Svc as cancel_order
   participant Db as orders
 
   Client->>Route: X-User-Id and order_id
@@ -150,17 +150,23 @@ sequenceDiagram
       Route->>Access: provider_id or patient_id
       alt not the owner
         Access-->>Client: 404 NOT_FOUND
-      else pending_payment
+      else owner
         Route->>Svc: cancel_order
-        Svc->>Db: status cancelled, cancelled_at, commit
-        Route-->>Client: 200 order JSON
-      else any other status
-        Svc-->>Client: 409 ORDER_NOT_CANCELLABLE
+        Svc->>Db: UPDATE cancelled WHERE pending_payment
+        alt rowcount is 1
+          Svc->>Db: commit, expire, re-read
+          Route-->>Client: 200 order JSON
+        else rowcount is 0
+          Svc->>Db: rollback
+          Svc-->>Client: 409 ORDER_NOT_CANCELLABLE
+        end
       end
     end
   end
 ```
 
-**No write on 409.** `paid` or `cancelled` leaves the row unchanged. The message is "Order cannot be cancelled." There is no notifier call on any branch. Stock and `ledger_entries` stay as they were.
+**Update.** The statement is `UPDATE orders SET status='cancelled', cancelled_at=? WHERE id=? AND status='pending_payment'` with `synchronize_session=False`. `cancelled_at` is UTC `YYYY-MM-DDTHH:MM:SSZ`. One row commits, then `expire` and a fresh `session.get`. The 200 body is `present_order` of that row, including line totals from the stored lines. A missing row after the commit raises `OrderNotCancellable`.
 
-**Out.** The 200 body is `present_order` of the updated row, including line totals from the stored lines.
+**Zero rows.** `paid`, `cancelled`, or a lost race matches nothing. `cancel_order` rolls back and raises `OrderNotCancellable`. The route maps that to 409 `ORDER_NOT_CANCELLABLE`, message "Order cannot be cancelled." The committed row is left as it was.
+
+**Unchanged.** There is no notifier call on any branch. `products.stock_qty` is unchanged. No `ledger_entries` row is inserted. `payment_ref` and `paid_at` stay as they were.

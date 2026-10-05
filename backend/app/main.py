@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from app.api.catalog import router as catalog_router
 from app.api.orders import router as orders_router
 from app.api.users import router as users_router
-from app.config import build_notifier, build_payment_provider
+from app.config import build_fulfillment, build_notifier, build_payment_provider
 from app.config import database_url as default_database_url
 from app.db import init_db, make_engine, make_session_factory
 from app.domain.money import PricingError
@@ -41,6 +41,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
     )
     application.state.notifier = build_notifier()
     application.state.payment_provider = build_payment_provider()
+    application.state.fulfillment = build_fulfillment()
 
     @application.exception_handler(APIError)
     async def _handle_api_error(_request: Request, exc: APIError) -> JSONResponse:

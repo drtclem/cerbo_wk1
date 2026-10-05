@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
@@ -8,7 +8,9 @@ from app.db import get_session
 from app.domain.money import OrderSplit
 from app.models import Order, User
 from app.seams.auth import APIError, require_order_access, require_role
+from app.seams.fulfillment import Fulfillment
 from app.seams.notifier import Notifier
+from app.seams.payment_provider import PaymentProvider
 from app.services.orders import (
     InvalidPatient,
     OrderLineView,
@@ -25,6 +27,7 @@ from app.services.orders import (
     present_order,
     preview_order,
 )
+from app.services.payments import OrderNotPayable, OutOfStock, PaymentDeclined, pay_order
 
 router = APIRouter()
 
@@ -117,6 +120,12 @@ class CreateOrderRequest(BaseModel):
     lines: list[PreviewLineRequest]
 
 
+class PayRequest(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    payment_method: Literal["fake_card_ok", "fake_card_decline"]
+
+
 class OrderLineResponse(BaseModel):
     product_id: int
     product_name: str
@@ -149,6 +158,16 @@ class OrderResponse(BaseModel):
 def get_notifier(request: Request) -> Notifier:
     notifier: Notifier = request.app.state.notifier
     return notifier
+
+
+def get_payment_provider(request: Request) -> PaymentProvider:
+    provider: PaymentProvider = request.app.state.payment_provider
+    return provider
+
+
+def get_fulfillment(request: Request) -> Fulfillment:
+    fulfillment: Fulfillment = request.app.state.fulfillment
+    return fulfillment
 
 
 def _preview_lines(lines: list[PreviewLineRequest]) -> list[PreviewLine]:
@@ -259,3 +278,31 @@ def post_cancel_order(
         return _order_response(cancel_order(session, order))
     except OrderNotCancellable:
         raise APIError(409, "ORDER_NOT_CANCELLABLE", "Order cannot be cancelled.") from None
+
+
+@router.post("/orders/{order_id}/pay", response_model=OrderResponse)
+def post_pay_order(
+    order_id: int,
+    body: PayRequest,
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[User, Depends(require_role("patient"))],
+    payment_provider: Annotated[PaymentProvider, Depends(get_payment_provider)],
+    fulfillment: Annotated[Fulfillment, Depends(get_fulfillment)],
+) -> OrderResponse:
+    order = _load_order(session, order_id)
+    require_order_access(order, user)
+    try:
+        view = pay_order(
+            session,
+            order.id,
+            body.payment_method,
+            payment_provider,
+            fulfillment,
+        )
+    except OrderNotPayable:
+        raise APIError(409, "ORDER_NOT_PAYABLE", "Order cannot be paid.") from None
+    except OutOfStock:
+        raise APIError(409, "OUT_OF_STOCK", "Not enough stock.") from None
+    except PaymentDeclined:
+        raise APIError(402, "PAYMENT_DECLINED", "Payment was declined.") from None
+    return _order_response(view)
