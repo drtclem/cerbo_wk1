@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.api.catalog import router as catalog_router
+from app.api.orders import router as orders_router
 from app.api.users import router as users_router
 from app.config import database_url as default_database_url
 from app.db import init_db, make_engine, make_session_factory
@@ -86,6 +87,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     application.include_router(users_router)
     application.include_router(catalog_router)
+    application.include_router(orders_router)
     return application
 
 

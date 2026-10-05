@@ -62,10 +62,10 @@ Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `P
 ### T5. Order preview
 `POST /orders/preview` → `OrderSplit` or a pricing error. No DB writes.
 **Done when tests prove:**
-- [ ] The response matches `compute_split` for a multi-line order (all cents exact).
-- [ ] Pricing errors return 422 with code and `line_index`.
-- [ ] A product not enabled for this provider → `PRODUCT_UNAVAILABLE`.
-- [ ] Row counts in all tables are unchanged after a preview.
+- [x] The response matches `compute_split` for a multi-line order (all cents exact).
+- [x] Pricing errors return 422 with code and `line_index`.
+- [x] A product not enabled for this provider → `PRODUCT_UNAVAILABLE`.
+- [x] Row counts in all tables are unchanged after a preview.
 
 ### T6. Create, view, and cancel orders
 `POST /orders` (snapshot price, COGS, name, fee_bps; status `pending_payment`; call `Notifier.order_created`; return patient link), `GET /orders/{id}`, `GET /patient/orders`, `POST /orders/{id}/cancel`.

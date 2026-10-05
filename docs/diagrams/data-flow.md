@@ -1,8 +1,8 @@
-_Last updated: 2026-10-05 — T4: catalog reads products; a provider update validates one line and upserts provider_products._
+_Last updated: 2026-10-05 — T5: order preview reads enabled links and unit COGS, then returns a split with no write._
 
 # Data flow
 
-Startup writes the seed into SQLite and keeps a session factory. After that, HTTP data moves on the health check, the user list, `GET /me`, and the catalog routes. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. The frontend renders a static heading and does not send or receive API data.
+Startup writes the seed into SQLite and keeps a session factory. After that, HTTP data moves on the health check, the user list, `GET /me`, the catalog routes, and `POST /orders/preview`. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. An order preview reads `provider_products` and `products.unit_cogs_cents`, validates the resolved lines, and returns an `OrderSplit`. It does not write. The frontend renders a static heading and does not send or receive API data.
 
 ```mermaid
 flowchart LR
@@ -48,6 +48,17 @@ flowchart LR
   putProviderProduct -->|"404 APIError"| apiError
   putProviderProduct -->|"invalid body or path"| validationHandler["RequestValidationError handler"]
   validationHandler -->|"422 VALIDATION_ERROR"| httpClient
+
+  httpClient -->|"POST /orders/preview, X-User-Id"| postOrderPreview["post_order_preview"]
+  postOrderPreview --> requireRole
+  postOrderPreview --> ordersSvc["services/orders"]
+  ordersSvc --> getSession
+  ordersSvc -->|"read provider_products and unit_cogs_cents"| sqliteFile
+  ordersSvc -->|"resolved lines, FEE_BPS_DEFAULT"| validateOrder
+  ordersSvc -->|"PricingError"| pricingHandler
+  postOrderPreview -->|"422 PRODUCT_UNAVAILABLE"| apiError
+  postOrderPreview -->|"200 OrderSplit JSON"| httpClient
+  postOrderPreview -->|"invalid body"| validationHandler
 ```
 
 ## Startup
@@ -110,8 +121,20 @@ The read and update branches are in `flows/provider-products.md`.
 6. **Write.** For this provider and product only, insert a `provider_products` row or update the existing one. The stored fields are `enabled` (`1` or `0`) and `default_price_cents`. `session.commit()` runs in the service. `products.stock_qty` and every other provider's rows stay as they were.
 7. **Out.** HTTP 200 and one object with the same fields as a provider-list row. `stock_qty` is still the `products` value.
 
+## POST /orders/preview
+
+1. **In.** `POST /orders/preview`, header `X-User-Id`, and a JSON body `{"lines": [{"product_id", "qty", "unit_price_cents"}, ...]}`.
+2. **Auth.** `require_role("provider")`. An admin or a patient is 403 `FORBIDDEN`. A missing or unknown user is 401 `UNAUTHENTICATED`.
+3. **Request validation.** `PreviewRequest` and `PreviewLineRequest` are strict. Each line's `product_id`, `qty`, and `unit_price_cents` must be JSON integers. A bad body raises `RequestValidationError` before `preview_order`. The handler returns HTTP 422 and `{"error": {"code": "VALIDATION_ERROR", "message": "Invalid request", "line_index": null}}`. Nothing is written.
+4. **Resolve, in order.** `preview_order` does not commit and does not insert, update, or delete. For each line, a `product_id` outside `1..9223372036854775807` is unavailable and is not queried. Otherwise it loads `provider_products` for `(provider_id, product_id)`. A missing row or `enabled` other than `1` is unavailable and does not read `products`. An enabled row then loads `products` and copies `unit_cogs_cents`. A missing product is unavailable. `stock_qty` is not read. `orders`, `order_lines`, and `ledger_entries` are not read or written.
+5. **Unavailable line.** If any earlier line already resolved, `validate_order` runs on that prefix at `FEE_BPS_DEFAULT` before the unavailable error. A `PricingError` from the prefix is the response: HTTP 422, `code` is the pricing code, `message` is `detail`, and `line_index` is that error's line index. If the prefix is valid, or there is no prefix, the route maps `ProductUnavailable` to `APIError` 422 `PRODUCT_UNAVAILABLE`, message "Product is not available for this provider.", and `line_index` of the unavailable line. Nothing is written.
+6. **Every line resolved.** `validate_order` runs on the full list at `FEE_BPS_DEFAULT`. An empty `lines` array takes this path and raises `EMPTY_ORDER`. Any other `PricingError` uses the same 422 handler as the prefix. Nothing is written.
+7. **Out.** HTTP 200 and the `OrderSplit` fields: `lines` of `{product_id, qty, unit_price_cents, unit_cogs_cents, line_total_cents, line_cogs_cents, line_margin_cents}`, plus `subtotal_cents`, `cogs_total_cents`, `fee_bps`, `platform_fee_cents`, and `provider_payout_cents`.
+
+The branch detail is in `flows/order-preview.md`.
+
 ## Present in code, idle at runtime
 
 `require_order_access(order, user)` returns `None` when the user is that order's provider or patient, and raises 404 `NOT_FOUND` "Not found" otherwise. No production route calls it. The `APIError` handler would serialize that failure as `{"error": {"code", "message", "line_index": null}}`.
 
-`compute_split` and `compute_fee` run only when `validate_order` calls them. That happens on `PUT /provider/products/{product_id}` after the product is found, and when `backend/tests/test_money.py` calls the money module directly.
+`compute_split` and `compute_fee` run only when `validate_order` calls them. That happens on `PUT /provider/products/{product_id}` after the product is found, on `POST /orders/preview` after lines resolve (or on a resolved prefix when a later line is unavailable), and when `backend/tests/test_money.py` calls the money module directly.

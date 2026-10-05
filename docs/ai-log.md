@@ -59,3 +59,8 @@ _Running notes for the "How you used AI" section of the writeup. Add an entry wh
 - **Result:** VERIFIED, reviewer clean. Default prices are validated with the same `validate_order` used for real orders (at qty 1), so the guardrail can't drift from the money math.
 - **Real catch (correction):** Pydantic's default "lax" mode silently converted `2500.0`, `"2500"`, and `true` into integer cents, and `1` into a boolean. That would have let floats and strings into the money path despite the "integer cents only" rule. The request model is now strict. Lesson: a framework's convenience defaults can quietly undermine a core invariant; the "no floats" rule had to be enforced at the API boundary too, not just in the money module.
 - **Plan gap filled:** malformed requests return `VALIDATION_ERROR` / "Invalid request" in the standard error envelope; the architecture didn't name this code.
+
+### 2026-10-05 · T5 order preview · Cursor agent + verifier/reviewer
+- **Result:** VERIFIED, reviewer clean. Preview runs the real `validate_order`/`compute_split` with COGS read from the catalog (never trusted from the client) and writes nothing; tests prove row counts are unchanged after success and error.
+- **Plan gap filled:** chose the message "Product is not available for this provider." for `PRODUCT_UNAVAILABLE` (architecture named only the code). Unknown, not-on-list, and disabled products deliberately share one error so the response doesn't reveal which products exist for other providers.
+- **Deliberate behavior:** quantity above stock still previews; stock is enforced at payment (D6).
