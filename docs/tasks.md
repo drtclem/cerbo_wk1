@@ -70,12 +70,12 @@ Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `P
 ### T6. Create, view, and cancel orders
 `POST /orders` (snapshot price, COGS, name, fee_bps; status `pending_payment`; call `Notifier.order_created`; return patient link), `GET /orders/{id}`, `GET /patient/orders`, `POST /orders/{id}/cancel`.
 **Done when tests prove:**
-- [ ] The created order's stored split equals the preview for the same input.
-- [ ] Changing a product's COGS or the provider's default price afterward does **not** change the order (AC2.5).
-- [ ] The notifier fake was called once with the patient link.
-- [ ] The patient can view their order; another patient and another provider get **404**.
-- [ ] The patient ID must belong to a `patient` user.
-- [ ] Cancel works on `pending_payment`; cancelling a cancelled order → 409 `ORDER_NOT_CANCELLABLE`.
+- [x] The created order's stored split equals the preview for the same input.
+- [x] Changing a product's COGS or the provider's default price afterward does **not** change the order (AC2.5).
+- [x] The notifier fake was called once with the patient link.
+- [x] The patient can view their order; another patient and another provider get **404**.
+- [x] The patient ID must belong to a `patient` user.
+- [x] Cancel works on `pending_payment`; cancelling a cancelled order → 409 `ORDER_NOT_CANCELLABLE`.
 
 ### T7. Payment seam
 `seams/payment_provider.py`: `PaymentProvider` protocol and `FakePaymentProvider` (architecture §8), wired via `config.py`.

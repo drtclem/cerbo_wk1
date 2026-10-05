@@ -1,10 +1,10 @@
-_Last updated: 2026-10-05 — T5: a provider previews a split; the route does not write._
+_Last updated: 2026-10-05 — T6: preview is unchanged; create, view, and cancel are in flows/orders.md._
 
 # POST /orders/preview
 
 `api/orders.post_order_preview` depends on `require_role("provider")`, which depends on `current_user`. The body is `{"lines": [{product_id, qty, unit_price_cents}, ...]}`. `preview_order` reads `provider_products` and `products.unit_cogs_cents`, then calls `validate_order` at `FEE_BPS_DEFAULT`. It does not commit and does not insert, update, or delete. `stock_qty` is not read. See `data-flow.md`.
 
-`get_session` opens a `Session` for the request and closes it with no commit.
+`get_session` opens a `Session` for the request and closes it with no commit. Create, view, and cancel are in `flows/orders.md`. This route still does not write.
 
 ```mermaid
 sequenceDiagram

@@ -1,4 +1,4 @@
-_Last updated: 2026-10-05 — T2: erDiagram of the six STRICT SQLite tables._
+_Last updated: 2026-10-05 — T6: orders and order_lines are written; ledger_entries stays empty._
 
 # Data model
 
@@ -84,4 +84,4 @@ erDiagram
 | `order_lines` | `qty >= 1`, `unit_price_cents > 0`, `unit_cogs_cents > 0`, `unit_price_cents >= unit_cogs_cents` |
 | `ledger_entries` | `entry_type IN ('patient_payment', 'cerbo_cogs', 'cerbo_fee', 'provider_payable')`, `amount_cents >= 0`, `UNIQUE(order_id, entry_type)` |
 
-No rows are required in `orders`, `order_lines`, or `ledger_entries`. `seed()` does not insert them.
+`seed()` does not insert `orders`, `order_lines`, or `ledger_entries`. `create_order` inserts one `orders` row with `status` `pending_payment` and one `order_lines` row per line. It copies `product_name`, `qty`, `unit_price_cents`, and `unit_cogs_cents` onto the line, and copies `fee_bps`, `subtotal_cents`, `cogs_total_cents`, `platform_fee_cents`, and `provider_payout_cents` onto the order. `payment_ref` and `paid_at` stay null. `cancel_order` sets `status` to `cancelled` and `cancelled_at` only when `status` is `pending_payment`. No code path inserts `ledger_entries` or changes `products.stock_qty`. Line totals in API responses are computed from the stored line by `line_amounts`; they are not columns.

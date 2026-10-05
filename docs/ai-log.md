@@ -64,3 +64,8 @@ _Running notes for the "How you used AI" section of the writeup. Add an entry wh
 - **Result:** VERIFIED, reviewer clean. Preview runs the real `validate_order`/`compute_split` with COGS read from the catalog (never trusted from the client) and writes nothing; tests prove row counts are unchanged after success and error.
 - **Plan gap filled:** chose the message "Product is not available for this provider." for `PRODUCT_UNAVAILABLE` (architecture named only the code). Unknown, not-on-list, and disabled products deliberately share one error so the response doesn't reveal which products exist for other providers.
 - **Deliberate behavior:** quantity above stock still previews; stock is enforced at payment (D6).
+
+### 2026-10-05 · T6 create / view / cancel orders · Cursor agent + verifier/reviewer
+- **Result:** VERIFIED, reviewer clean. Orders snapshot product name, unit price, unit COGS, and fee rate at creation; reads use only stored amounts, and tests prove later catalog changes don't alter existing orders (AC2.5). Notifier is called only after commit, and a notifier failure doesn't lose the order.
+- **Plan gaps filled:** patient link is the relative path `/orders/{id}` (no public host configured); chose `INVALID_PATIENT` ("Patient must be a patient user.") and the message "Order cannot be cancelled." for `ORDER_NOT_CANCELLABLE`.
+- **Claude review note:** cancel is check-then-set (`if status != pending: …; status = cancelled`). Safe on SQLite because `BEGIN IMMEDIATE` holds the write lock from the read onward, but on Postgres it could race with a concurrent payment, the exact pattern D5 rejected. Folded into T8: make cancel a conditional `UPDATE … WHERE status = 'pending_payment'` and add a concurrent pay-vs-cancel test.

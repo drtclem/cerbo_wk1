@@ -48,11 +48,21 @@ def compute_fee(subtotal_cents: int, fee_bps: int) -> int:
     return (subtotal_cents * fee_bps + 5_000) // 10_000
 
 
+def line_amounts(
+    unit_price_cents: int, unit_cogs_cents: int, qty: int
+) -> tuple[int, int, int]:
+    """Display amounts for one line. The fee is not applied here."""
+    line_total_cents = unit_price_cents * qty
+    line_cogs_cents = unit_cogs_cents * qty
+    return line_total_cents, line_cogs_cents, line_total_cents - line_cogs_cents
+
+
 def compute_split(lines: Sequence[LineInput], fee_bps: int) -> OrderSplit:
     priced: list[LineSplit] = []
     for line in lines:
-        line_total_cents = line.unit_price_cents * line.qty
-        line_cogs_cents = line.unit_cogs_cents * line.qty
+        line_total_cents, line_cogs_cents, line_margin_cents = line_amounts(
+            line.unit_price_cents, line.unit_cogs_cents, line.qty
+        )
         priced.append(
             LineSplit(
                 product_id=line.product_id,
@@ -61,7 +71,7 @@ def compute_split(lines: Sequence[LineInput], fee_bps: int) -> OrderSplit:
                 unit_cogs_cents=line.unit_cogs_cents,
                 line_total_cents=line_total_cents,
                 line_cogs_cents=line_cogs_cents,
-                line_margin_cents=line_total_cents - line_cogs_cents,
+                line_margin_cents=line_margin_cents,
             )
         )
     subtotal_cents = sum(line.line_total_cents for line in priced)
