@@ -1,0 +1,32 @@
+---
+description: Required build workflow using the tester, verifier, reviewer, design-critic, and diagrammer subagents
+alwaysApply: true
+---
+
+# Build workflow (required for every task)
+
+Project docs live in `docs/`: `prd.md` (what we're building), `architecture.md` (how), `tasks.md` (ordered task list with "done" criteria). Read the relevant parts before starting any task.
+
+## For every task, follow these steps in order
+
+1. **Pick one task** from `docs/tasks.md`. Work on one task at a time.
+2. **Design check (when needed).** If the task needs a decision the docs don't already cover (new data model, API shape, dependency, pattern, or any change to `docs/architecture.md`), send the proposal to the **design-critic** subagent first.
+   - If its verdict is "Rethink", or the decision is hard to reverse, STOP and ask me before building.
+3. **Tests first.** Use the **tester** subagent to write tests from the task's "done" criteria. Confirm they fail for the right reason.
+4. **Implement** the smallest change that makes the tests pass. Follow existing patterns in the codebase.
+5. **Verify.** Run the **verifier** subagent. If it reports NOT VERIFIED, fix the cause and run it again.
+6. **Review.** Run the **reviewer** subagent. Fix every **Blocking** finding, then re-run verifier and reviewer.
+7. **Update diagrams.** If the task added, removed, or changed a component, module boundary, API, data model, external service, or how data flows, run the **diagrammer** subagent to update `docs/diagrams/`. If nothing structural changed, say so in the report.
+8. **Report back** to me with: what changed, the verifier result, the reviewer result, which diagrams were updated (or why none were), and any "Should fix" items you deferred.
+
+## A task is NOT done until
+- verifier says **VERIFIED**, and
+- reviewer says **No blocking issues**.
+
+Never claim a task is done, commit, or move to the next task without both.
+
+## Hard rules
+- Never skip, disable, delete, or weaken tests to get a pass.
+- Never change `docs/prd.md` or `docs/architecture.md` without my approval.
+- Don't build features or abstractions that aren't in the current task.
+- If something is ambiguous, ask me rather than guessing.
