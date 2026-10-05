@@ -42,3 +42,6 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+
+# Stray lockfile from running npm at the repo root (the real one lives in frontend/)
+/package-lock.json

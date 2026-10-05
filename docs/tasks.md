@@ -55,9 +55,9 @@ Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `P
 ### T4. Catalog and provider product list
 `GET /products`, `GET /provider/products`, `PUT /provider/products/{product_id}` (enabled, default price; validated with `validate_order` at qty 1).
 **Done when tests prove:**
-- [ ] A provider sees their list with stock; a patient gets 403.
-- [ ] A default price that would make the payout negative at qty 1 → 422 with `NEGATIVE_PAYOUT`; a valid one saves.
-- [ ] A provider can't change another provider's list.
+- [x] A provider sees their list with stock; a patient gets 403.
+- [x] A default price that would make the payout negative at qty 1 → 422 with `NEGATIVE_PAYOUT`; a valid one saves.
+- [x] A provider can't change another provider's list.
 
 ### T5. Order preview
 `POST /orders/preview` → `OrderSplit` or a pricing error. No DB writes.

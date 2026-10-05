@@ -2,11 +2,14 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.api.catalog import router as catalog_router
 from app.api.users import router as users_router
 from app.config import database_url as default_database_url
 from app.db import init_db, make_engine, make_session_factory
+from app.domain.money import PricingError
 from app.seams.auth import APIError
 from app.seed import seed
 
@@ -48,11 +51,41 @@ def create_app(database_url: str | None = None) -> FastAPI:
             },
         )
 
+    @application.exception_handler(PricingError)
+    async def _handle_pricing_error(_request: Request, exc: PricingError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": exc.code,
+                    "message": exc.detail,
+                    "line_index": exc.line_index,
+                }
+            },
+        )
+
+    @application.exception_handler(RequestValidationError)
+    async def _handle_validation_error(
+        _request: Request,
+        _exc: RequestValidationError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Invalid request",
+                    "line_index": None,
+                }
+            },
+        )
+
     @application.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
     application.include_router(users_router)
+    application.include_router(catalog_router)
     return application
 
 
