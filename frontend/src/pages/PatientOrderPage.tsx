@@ -3,7 +3,8 @@ import { useParams } from "react-router";
 
 import { apiGet, apiSend, errorText } from "../api/client.ts";
 import type { components } from "../api/schema.ts";
-import { formatCents } from "../lib/money.ts";
+import { Money } from "../components/Money.tsx";
+import { StatusPill } from "../components/StatusPill.tsx";
 
 type OrderResponse = components["schemas"]["OrderResponse"];
 type PaymentMethod = "fake_card_ok" | "fake_card_decline";
@@ -22,19 +23,6 @@ const MONTHS = [
   "Nov",
   "Dec",
 ] as const;
-
-function statusLabel(status: string): string {
-  if (status === "pending_payment") {
-    return "Pending payment";
-  }
-  if (status === "paid") {
-    return "Paid";
-  }
-  if (status === "cancelled") {
-    return "Cancelled";
-  }
-  return status;
-}
 
 function orderDateLabel(createdAt: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(createdAt);
@@ -119,20 +107,28 @@ function PatientOrderPage({ userId, role }: { userId: number; role: string }) {
   }
 
   return (
-    <main>
+    <div className="page">
       <h1>{title}</h1>
-      <p>Status {statusLabel(order.status)}</p>
+      <p>
+        <StatusPill status={order.status} />
+      </p>
       {order.lines.map((line, index) => (
         <article key={`${line.product_id}-${index}`}>
           <header>
             <strong>{line.product_name}</strong>
           </header>
           <p>Qty {line.qty}</p>
-          <p>Unit price {formatCents(line.unit_price_cents)}</p>
-          <p>Line total {formatCents(line.line_total_cents)}</p>
+          <p>
+            Unit price <Money cents={line.unit_price_cents} />
+          </p>
+          <p>
+            Line total <Money cents={line.line_total_cents} />
+          </p>
         </article>
       ))}
-      <p>Total {formatCents(order.subtotal_cents)}</p>
+      <p>
+        Total <Money cents={order.subtotal_cents} />
+      </p>
       <p>Prices set by your provider on {orderDateLabel(order.created_at)}</p>
       {canPay ? (
         <>
@@ -157,6 +153,6 @@ function PatientOrderPage({ userId, role }: { userId: number; role: string }) {
         </>
       ) : null}
       {payError !== null ? <p role="alert">{payError}</p> : null}
-    </main>
+    </div>
   );
 }

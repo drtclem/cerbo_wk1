@@ -144,3 +144,24 @@ Generate API types from `/openapi.json` (`openapi-typescript`, npm script `gen:a
 
 ### T17. Writeup (owner + Claude, not Cursor)
 Key decisions and tradeoffs (from `decisions.md`), what was cut and what's next (PRD §10, architecture §11), and how AI was used (from `docs/ai-log.md`).
+
+---
+
+## Phase 5: Interface polish (optional, post-submission-ready)
+
+Design source of truth: [`ui-design.md`](ui-design.md). **Frontend only.** No backend, API, or `money.py` changes; the frontend still never computes the split (bar widths are display proportions of API-returned cents). No new pages; no change to what any page fetches or sends.
+
+### T18. Design system, app shell, and the split bar
+Replace Pico with a small hand-written stylesheet built on the tokens in `ui-design.md` (add `@fontsource-variable/inter`; remove `@picocss/pico`). Build the app shell (top bar, nav, demo role switcher marked as a demo tool) and the shared components: `SplitBar` (full + compact), `StatusPill`, `Money`, button styles, inline error, empty state.
+**Done when:**
+- [x] Every existing page still renders and works (manual click-through of the T12–T15 checklists), now in the new shell.
+- [x] Vitest covers `SplitBar` proportions: widths from `cogs/subtotal`, `fee/subtotal`, `payout/subtotal`; fee segment never under its minimum width; labels print `formatCents` of the props, unchanged.
+- [x] `npm run build`, `npm run lint`, `npm test` pass; backend tests untouched and passing.
+- [x] Keyboard focus visible on every control; layout works at 375px.
+
+### T19. Apply the design to every page
+Order builder (two columns, sticky summary with live split bar), review/created, patient order page (receipt layout, no split bar), dashboard (lead sentence, totals bar, tables with compact bars and status pills), audit (ledger table + three-item checklist), admin (dense inline-edit table), products page.
+**Done when:**
+- [ ] Manual click-through of the README demo walkthrough on a fresh database: every number matches the README to the cent.
+- [ ] Each page matches its description in `ui-design.md`; screenshots of each page at desktop width attached to the report.
+- [ ] Builds, lint, and all tests pass.

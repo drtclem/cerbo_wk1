@@ -3,7 +3,10 @@ import { Link } from "react-router";
 
 import { apiGet, apiSend, errorText } from "../api/client.ts";
 import type { components } from "../api/schema.ts";
-import { formatCents } from "../lib/money.ts";
+import { EmptyState } from "../components/EmptyState.tsx";
+import { InlineError } from "../components/InlineError.tsx";
+import { Money } from "../components/Money.tsx";
+import { SplitBar } from "../components/SplitBar.tsx";
 
 type Dashboard = components["schemas"]["DashboardResponse"];
 type PendingOrder = components["schemas"]["PendingOrderResponse"];
@@ -93,38 +96,68 @@ export function DashboardPage({ userId }: { userId: number }) {
   }
 
   return (
-    <main>
+    <div className="page">
       <h1>Dashboard</h1>
-      <p>GMV {formatCents(dashboard.gmv_cents)}</p>
-      <p>Platform fees {formatCents(dashboard.platform_fee_cents)}</p>
-      <p>Earnings {formatCents(dashboard.earnings_cents)}</p>
+      <p>
+        GMV <Money cents={dashboard.gmv_cents} />
+      </p>
+      <p>
+        Platform fees <Money cents={dashboard.platform_fee_cents} />
+      </p>
+      <p>
+        Earnings <Money cents={dashboard.earnings_cents} emphasize />
+      </p>
       <h2>Paid orders</h2>
-      {dashboard.paid_orders.length === 0 ? <p>No paid orders.</p> : null}
+      {dashboard.paid_orders.length === 0 ? (
+        <EmptyState actionTo="/orders/new" actionLabel="New order">
+          No paid orders yet. Create one from
+        </EmptyState>
+      ) : null}
       {dashboard.paid_orders.length > 0 ? (
         <table>
           <thead>
             <tr>
               <th>Date</th>
               <th>Patient</th>
-              <th>Subtotal</th>
-              <th>Fee</th>
-              <th>Payout</th>
+              <th className="num">Subtotal</th>
+              <th className="num">Fee</th>
+              <th className="num">Payout</th>
+              <th>Split</th>
               <th>Audit</th>
             </tr>
           </thead>
           <tbody>
-            {dashboard.paid_orders.map((order) => (
-              <tr key={order.id}>
-                <td>{orderDateLabel(order.paid_at)}</td>
-                <td>{order.patient_name}</td>
-                <td>{formatCents(order.subtotal_cents)}</td>
-                <td>{formatCents(order.platform_fee_cents)}</td>
-                <td>{formatCents(order.provider_payout_cents)}</td>
-                <td>
-                  <Link to={order.audit_link}>Audit</Link>
-                </td>
-              </tr>
-            ))}
+            {dashboard.paid_orders.map((order) => {
+              const cogsCents =
+                order.subtotal_cents - order.platform_fee_cents - order.provider_payout_cents;
+              return (
+                <tr key={order.id}>
+                  <td>{orderDateLabel(order.paid_at)}</td>
+                  <td>{order.patient_name}</td>
+                  <td className="num">
+                    <Money cents={order.subtotal_cents} />
+                  </td>
+                  <td className="num">
+                    <Money cents={order.platform_fee_cents} />
+                  </td>
+                  <td className="num">
+                    <Money cents={order.provider_payout_cents} emphasize />
+                  </td>
+                  <td style={{ minWidth: "7rem" }}>
+                    <SplitBar
+                      compact
+                      subtotalCents={order.subtotal_cents}
+                      cogsCents={cogsCents}
+                      feeCents={order.platform_fee_cents}
+                      payoutCents={order.provider_payout_cents}
+                    />
+                  </td>
+                  <td>
+                    <Link to={order.audit_link}>Audit</Link>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       ) : null}
@@ -146,15 +179,17 @@ export function DashboardPage({ userId }: { userId: number }) {
           <p>{orderDateLabel(order.created_at)}</p>
           <button
             type="button"
-            className="secondary"
+            className="danger-quiet"
             disabled={cancellingIds.has(order.id)}
             onClick={() => void cancelOrder(order)}
           >
             Cancel
           </button>
-          {cancelError?.id === order.id ? <p role="alert">{cancelError.message}</p> : null}
+          {cancelError?.id === order.id ? (
+            <InlineError message={cancelError.message} />
+          ) : null}
         </article>
       ))}
-    </main>
+    </div>
   );
 }

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, apiGet, apiSend, errorText } from "../api/client.ts";
 import type { components } from "../api/schema.ts";
 import type { User } from "../components/RoleSwitcher.tsx";
+import { SplitBar } from "../components/SplitBar.tsx";
 import { formatCents, parseDollarsToCents } from "../lib/money.ts";
 
 type ProviderProduct = components["schemas"]["ProviderProductResponse"];
@@ -94,16 +95,13 @@ function SplitBreakdown({
   subtotalLabel: string;
 }) {
   return (
-    <div>
-      <p>
-        {subtotalLabel} {formatCents(split.subtotal_cents)}
-      </p>
-      <p>COGS {formatCents(split.cogs_total_cents)}</p>
-      <p>Platform fee {formatCents(split.platform_fee_cents)}</p>
-      <p>
-        You receive <span className="you-receive">{formatCents(split.provider_payout_cents)}</span>
-      </p>
-    </div>
+    <SplitBar
+      subtotalCents={split.subtotal_cents}
+      cogsCents={split.cogs_total_cents}
+      feeCents={split.platform_fee_cents}
+      payoutCents={split.provider_payout_cents}
+      subtotalCaption={subtotalLabel}
+    />
   );
 }
 
@@ -278,7 +276,7 @@ export function NewOrderPage({ userId }: { userId: number }) {
   if (step === "review") {
     const reviewError = previewProblem?.message ?? createError;
     return (
-      <main>
+      <div className="page">
         <h1>Review order</h1>
         {patient !== null ? <p>Patient {patient.name}</p> : null}
         {shownPreview !== null
@@ -317,7 +315,7 @@ export function NewOrderPage({ userId }: { userId: number }) {
         >
           Confirm
         </button>
-      </main>
+      </div>
     );
   }
 
@@ -325,7 +323,7 @@ export function NewOrderPage({ userId }: { userId: number }) {
     previewProblem !== null && previewProblem.lineIndex === null ? previewProblem.message : null;
 
   return (
-    <main>
+    <div className="page">
       <h1>New order</h1>
       <label>
         Patient
@@ -429,7 +427,7 @@ export function NewOrderPage({ userId }: { userId: number }) {
         Continue
       </button>
       {continueReason !== null ? <p>{continueReason}</p> : null}
-    </main>
+    </div>
   );
 }
 
@@ -471,7 +469,7 @@ function CreatedOrder({ order, patientName }: { order: OrderResponse; patientNam
   }
 
   return (
-    <main>
+    <div className="page">
       <h1>Order created</h1>
       <p>Patient {patientName}</p>
       <p>Patient link {order.patient_link}</p>
@@ -480,6 +478,6 @@ function CreatedOrder({ order, patientName }: { order: OrderResponse; patientNam
       </button>
       {copied ? <p>Copied</p> : null}
       {copyError !== null ? <p role="alert">{copyError}</p> : null}
-    </main>
+    </div>
   );
 }

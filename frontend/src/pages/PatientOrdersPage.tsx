@@ -3,22 +3,12 @@ import { Link } from "react-router";
 
 import { apiGet, errorText } from "../api/client.ts";
 import type { components } from "../api/schema.ts";
-import { formatCents } from "../lib/money.ts";
+import { EmptyState } from "../components/EmptyState.tsx";
+import { InlineError } from "../components/InlineError.tsx";
+import { Money } from "../components/Money.tsx";
+import { StatusPill } from "../components/StatusPill.tsx";
 
 type OrderResponse = components["schemas"]["OrderResponse"];
-
-function statusLabel(status: string): string {
-  if (status === "pending_payment") {
-    return "Pending payment";
-  }
-  if (status === "paid") {
-    return "Paid";
-  }
-  if (status === "cancelled") {
-    return "Cancelled";
-  }
-  return status;
-}
 
 export function PatientOrdersPage({ userId }: { userId: number }) {
   const [orders, setOrders] = useState<OrderResponse[] | null>(null);
@@ -44,25 +34,29 @@ export function PatientOrdersPage({ userId }: { userId: number }) {
   }, [userId]);
 
   if (loadError !== null) {
-    return <p role="alert">{loadError}</p>;
+    return <InlineError message={loadError} />;
   }
   if (orders === null) {
     return <p>Loading orders…</p>;
   }
 
   return (
-    <main>
+    <div className="page">
       <h1>My orders</h1>
-      {orders.length === 0 ? <p>No orders.</p> : null}
+      {orders.length === 0 ? <EmptyState>No orders yet.</EmptyState> : null}
       {orders.map((order) => (
         <article key={order.id}>
           <header>
             <Link to={`/orders/${order.id}`}>Order {order.id}</Link>
           </header>
-          <p>Status {statusLabel(order.status)}</p>
-          <p>Total {formatCents(order.subtotal_cents)}</p>
+          <p>
+            <StatusPill status={order.status} />
+          </p>
+          <p>
+            Total <Money cents={order.subtotal_cents} />
+          </p>
         </article>
       ))}
-    </main>
+    </div>
   );
 }

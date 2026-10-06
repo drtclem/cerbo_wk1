@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router";
+import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router";
 
 import { ApiError, apiGet } from "./api/client.ts";
 import { RoleSwitcher, type User } from "./components/RoleSwitcher.tsx";
@@ -106,17 +106,12 @@ export default function App() {
   const links = me === null ? [] : navFor(me.role);
 
   return (
-    <>
-      <header className="container app-header">
-        <strong>Cerbo supplement ordering</strong>
-        {users !== null && userId !== null ? (
-          <RoleSwitcher users={users} userId={userId} onChange={selectUser} />
-        ) : null}
-        {me !== null ? (
-          <p>
-            Signed in as {me.name}, {me.role}
-          </p>
-        ) : null}
+    <div className="app-shell">
+      <header className="app-topbar">
+        <Link to="/" className="app-brand">
+          <span className="app-brand__name">Cerbo</span>
+          <span className="app-brand__product">Supplements</span>
+        </Link>
         <nav className="app-nav" aria-label="Primary">
           {links.map((item) => (
             <NavLink key={item.to} to={item.to}>
@@ -124,9 +119,18 @@ export default function App() {
             </NavLink>
           ))}
         </nav>
-        {error !== null ? <p role="alert">{error}</p> : null}
+        <div className="app-topbar__demo">
+          {users !== null && userId !== null ? (
+            <RoleSwitcher users={users} userId={userId} onChange={selectUser} />
+          ) : null}
+        </div>
       </header>
-      <div className="container">
+      {error !== null ? (
+        <p className="app-banner-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <main className="app-main">
         <Routes>
           <Route path="/" element={<Home me={me} />} />
           <Route
@@ -182,8 +186,8 @@ export default function App() {
             }
           />
         </Routes>
-      </div>
-    </>
+      </main>
+    </div>
   );
 }
 

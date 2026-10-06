@@ -43,12 +43,12 @@ export function ProductsPage({ userId }: { userId: number }) {
   }
 
   return (
-    <main>
+    <div className="page">
       <h1>Products</h1>
       {products.map((product) => (
         <ProductRow key={product.product_id} product={product} userId={userId} />
       ))}
-    </main>
+    </div>
   );
 }
 

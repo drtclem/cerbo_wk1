@@ -57,7 +57,7 @@ export function AdminProductsPage({ userId }: { userId: number }) {
   }
 
   return (
-    <main>
+    <div className="page">
       <h1>Stock &amp; COGS</h1>
       {products.map((product) => (
         <AdminProductRow
@@ -67,7 +67,7 @@ export function AdminProductsPage({ userId }: { userId: number }) {
           onUpdated={replaceProduct}
         />
       ))}
-    </main>
+    </div>
   );
 }
 

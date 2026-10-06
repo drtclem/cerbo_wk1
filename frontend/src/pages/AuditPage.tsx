@@ -3,7 +3,9 @@ import { useParams } from "react-router";
 
 import { apiGet, errorText } from "../api/client.ts";
 import type { components } from "../api/schema.ts";
-import { formatCents } from "../lib/money.ts";
+import { Money } from "../components/Money.tsx";
+import { SplitBar } from "../components/SplitBar.tsx";
+import { StatusPill } from "../components/StatusPill.tsx";
 
 type Audit = components["schemas"]["AuditResponse"];
 
@@ -16,19 +18,6 @@ const LEDGER_LABELS: Record<string, string> = {
 
 function ledgerLabel(entryType: string): string {
   return LEDGER_LABELS[entryType] ?? entryType;
-}
-
-function statusLabel(status: string): string {
-  if (status === "pending_payment") {
-    return "Pending payment";
-  }
-  if (status === "paid") {
-    return "Paid";
-  }
-  if (status === "cancelled") {
-    return "Cancelled";
-  }
-  return status;
 }
 
 export function AuditRoute({ userId }: { userId: number }) {
@@ -74,10 +63,12 @@ function AuditPage({ userId }: { userId: number }) {
   }
 
   return (
-    <main>
+    <div className="page">
       <h1>Audit</h1>
       <p>Order {audit.id}</p>
-      <p>Status {statusLabel(audit.status)}</p>
+      <p>
+        <StatusPill status={audit.status} />
+      </p>
       <h2>Lines</h2>
       {audit.lines.map((line, index) => (
         <article key={`${line.product_id}-${index}`}>
@@ -85,29 +76,35 @@ function AuditPage({ userId }: { userId: number }) {
             <strong>{line.product_name}</strong>
           </header>
           <p>Qty {line.qty}</p>
-          <p>Unit price {formatCents(line.unit_price_cents)}</p>
-          <p>Unit COGS {formatCents(line.unit_cogs_cents)}</p>
-          <p>Line total {formatCents(line.line_total_cents)}</p>
+          <p>
+            Unit price <Money cents={line.unit_price_cents} />
+          </p>
+          <p>
+            Unit COGS <Money cents={line.unit_cogs_cents} />
+          </p>
+          <p>
+            Line total <Money cents={line.line_total_cents} />
+          </p>
         </article>
       ))}
       <h2>Split</h2>
-      <p>Subtotal {formatCents(audit.subtotal_cents)}</p>
-      <p>COGS {formatCents(audit.cogs_total_cents)}</p>
-      <p>Platform fee {formatCents(audit.platform_fee_cents)}</p>
-      <p>
-        You receive <span className="you-receive">{formatCents(audit.provider_payout_cents)}</span>
-      </p>
+      <SplitBar
+        subtotalCents={audit.subtotal_cents}
+        cogsCents={audit.cogs_total_cents}
+        feeCents={audit.platform_fee_cents}
+        payoutCents={audit.provider_payout_cents}
+      />
       <h2>Ledger</h2>
       {audit.ledger.length === 0 ? <p>No ledger entries.</p> : null}
       {audit.ledger.map((entry) => (
         <p key={entry.entry_type}>
-          {ledgerLabel(entry.entry_type)} {formatCents(entry.amount_cents)}
+          {ledgerLabel(entry.entry_type)} <Money cents={entry.amount_cents} />
         </p>
       ))}
       <h2>Integrity</h2>
       <p>{audit.recomputed_fee_matches ? "✓" : "✗"} Fee matches formula</p>
       <p>{audit.split_adds_up ? "✓" : "✗"} Split adds up</p>
       <p>{audit.ledger_matches_split ? "✓" : "✗"} Ledger matches split</p>
-    </main>
+    </div>
   );
 }

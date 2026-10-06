@@ -10,9 +10,12 @@ type RoleSwitcherProps = {
 
 export function RoleSwitcher({ users, userId, onChange }: RoleSwitcherProps) {
   return (
-    <label>
-      Role
+    <div className="role-switcher">
+      <span className="role-switcher__label" id="role-switcher-label">
+        Viewing as
+      </span>
       <select
+        aria-labelledby="role-switcher-label"
         value={userId}
         onChange={(event) => {
           onChange(Number(event.target.value));
@@ -24,6 +27,6 @@ export function RoleSwitcher({ users, userId, onChange }: RoleSwitcherProps) {
           </option>
         ))}
       </select>
-    </label>
+    </div>
   );
 }
