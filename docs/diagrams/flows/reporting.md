@@ -1,4 +1,4 @@
-_Last updated: 2026-10-05 — T9: a provider reads the dashboard and one order audit._
+_Last updated: 2026-10-05 — Audit JSON adds split_adds_up and ledger_matches_split._
 
 # Dashboard and audit
 
@@ -89,6 +89,7 @@ sequenceDiagram
           Svc->>Money: line_amounts on each snapshot
           Svc->>Db: ledger_entries order by id
           Svc->>Money: compute_fee subtotal, fee_bps
+          Note over Svc: split_adds_up and ledger_matches_split
           Route-->>Client: 200 audit JSON
         end
       end
@@ -114,4 +115,8 @@ sequenceDiagram
 
 **Fee check.** `recomputed_fee_matches` is true when `compute_fee(subtotal_cents, fee_bps)` equals the stored `platform_fee_cents`. `compute_split` is not called.
 
-**Out.** HTTP 200 is `{id, status, lines, subtotal_cents, cogs_total_cents, fee_bps, platform_fee_cents, provider_payout_cents, ledger, recomputed_fee_matches}`. Nothing is written.
+**Split check.** `split_adds_up` is true when `subtotal_cents == cogs_total_cents + platform_fee_cents + provider_payout_cents` on the stored order columns.
+
+**Ledger check.** For status `paid`, `ledger_matches_split` is true when the ledger has exactly the four entry types and `patient_payment` equals `subtotal_cents`, `cerbo_cogs` equals `cogs_total_cents`, `cerbo_fee` equals `platform_fee_cents`, and `provider_payable` equals `provider_payout_cents`. A repeated entry type is false. For any other status, it is true only when the ledger is empty.
+
+**Out.** HTTP 200 is `{id, status, lines, subtotal_cents, cogs_total_cents, fee_bps, platform_fee_cents, provider_payout_cents, ledger, recomputed_fee_matches, split_adds_up, ledger_matches_split}`. Nothing is written.

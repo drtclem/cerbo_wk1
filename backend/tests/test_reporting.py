@@ -65,6 +65,8 @@ _AUDIT_KEYS = {
     "provider_payout_cents",
     "ledger",
     "recomputed_fee_matches",
+    "split_adds_up",
+    "ledger_matches_split",
 }
 _LINE_KEYS = {
     "product_id",
@@ -744,6 +746,11 @@ def _assert_audit(
     matches = stored_fee == compute_fee(subtotal_cents, fee_bps)
     assert isinstance(body["recomputed_fee_matches"], bool)
     assert body["recomputed_fee_matches"] is matches
+    cogs_total_cents = _require_int(stored["cogs_total_cents"])
+    payout_cents = _require_int(stored["provider_payout_cents"])
+    split_adds_up = subtotal_cents == cogs_total_cents + stored_fee + payout_cents
+    assert isinstance(body["split_adds_up"], bool)
+    assert body["split_adds_up"] is split_adds_up
 
     response_lines = [_require_dict(line) for line in _require_list(body["lines"])]
     stored_by_product = _index_lines(_stored_lines(stored))
@@ -783,13 +790,22 @@ def _assert_audit(
         for entry in response_ledger:
             assert entry["created_at"] == paid_at
         assert amounts["patient_payment"] == subtotal_cents
-        assert amounts["cerbo_cogs"] == _require_int(stored["cogs_total_cents"])
+        assert amounts["cerbo_cogs"] == cogs_total_cents
         if columns_match_ledger:
             assert amounts["cerbo_fee"] == stored_fee
-            assert amounts["provider_payable"] == _require_int(stored["provider_payout_cents"])
+            assert amounts["provider_payable"] == payout_cents
         else:
             assert amounts["cerbo_fee"] != stored_fee
-            assert amounts["provider_payable"] != _require_int(stored["provider_payout_cents"])
+            assert amounts["provider_payable"] != payout_cents
+        ledger_matches = (
+            set(amounts) == set(_LEDGER_TYPES)
+            and amounts["patient_payment"] == subtotal_cents
+            and amounts["cerbo_cogs"] == cogs_total_cents
+            and amounts["cerbo_fee"] == stored_fee
+            and amounts["provider_payable"] == payout_cents
+        )
+        assert isinstance(body["ledger_matches_split"], bool)
+        assert body["ledger_matches_split"] is ledger_matches
         return
 
     assert stored["status"] in ("pending_payment", "cancelled")
@@ -797,6 +813,10 @@ def _assert_audit(
     assert stored_ledger == []
     assert matches is True
     assert body["recomputed_fee_matches"] is True
+    assert split_adds_up is True
+    assert body["split_adds_up"] is True
+    assert isinstance(body["ledger_matches_split"], bool)
+    assert body["ledger_matches_split"] is True
 
 
 def _assert_split_ignores_live_cogs(
@@ -1057,6 +1077,55 @@ def test_dashboard_and_audit_count_only_this_providers_paid_orders(tmp_path: Pat
         hidden_from_alex = _get_audit(application, client, jane_order_id, _headers(alex_id))
         assert hidden_from_alex.status_code == 404
         assert hidden_from_alex.json() == _NOT_FOUND
+
+
+def test_audit_flags_are_true_for_a_paid_order_and_an_unpaid_order(tmp_path: Path) -> None:
+    with _seeded(tmp_path) as (application, client, catalog):
+        provider_id = _user_id(client, "Dr. Maya Patel")
+        jane_id = _user_id(client, "Jane Doe")
+        mag_id = _product_id(catalog, "MAG-GLY")
+        price = _catalog_int(catalog, "MAG-GLY", "suggested_price_cents")
+        created = _create_order(
+            client,
+            provider_id,
+            jane_id,
+            [_request_line(mag_id, 1, price)],
+        )
+        unpaid = _get_audit(
+            application, client, _require_int(created["id"]), _headers(provider_id)
+        )
+        assert unpaid.status_code == 200
+        unpaid_body = _require_dict(unpaid.json())
+        assert unpaid_body["status"] == "pending_payment"
+        assert unpaid_body["ledger"] == []
+        assert unpaid_body["recomputed_fee_matches"] is True
+        assert unpaid_body["split_adds_up"] is True
+        assert unpaid_body["ledger_matches_split"] is True
+        subtotal_cents = _require_int(unpaid_body["subtotal_cents"])
+        assert subtotal_cents == (
+            _require_int(unpaid_body["cogs_total_cents"])
+            + _require_int(unpaid_body["platform_fee_cents"])
+            + _require_int(unpaid_body["provider_payout_cents"])
+        )
+
+        paid = _pay_order(client, _require_int(created["id"]), jane_id, created)
+        audit = _get_audit(
+            application, client, _require_int(paid["id"]), _headers(provider_id)
+        )
+        assert audit.status_code == 200
+        body = _require_dict(audit.json())
+        assert body["status"] == "paid"
+        assert body["recomputed_fee_matches"] is True
+        assert body["split_adds_up"] is True
+        assert body["ledger_matches_split"] is True
+        amounts = _amounts_by_type(
+            [_require_dict(entry) for entry in _require_list(body["ledger"])]
+        )
+        assert set(amounts) == set(_LEDGER_TYPES)
+        assert amounts["patient_payment"] == _require_int(body["subtotal_cents"])
+        assert amounts["cerbo_cogs"] == _require_int(body["cogs_total_cents"])
+        assert amounts["cerbo_fee"] == _require_int(body["platform_fee_cents"])
+        assert amounts["provider_payable"] == _require_int(body["provider_payout_cents"])
 
 
 def test_recomputed_fee_matches_is_false_when_the_stored_fee_changes(

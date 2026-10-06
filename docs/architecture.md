@@ -210,7 +210,7 @@ All amounts are integer cents. Auth via header `X-User-Id` (D10). Errors return 
 | `POST /orders/{id}/pay` | owning patient | Pay; idempotent (§7) |
 | `GET /patient/orders` | patient | Own orders |
 | `GET /provider/dashboard` | provider | Totals, paid orders, units per product, pending orders |
-| `GET /orders/{id}/audit` | owning provider | Lines, split, ledger, recomputation check |
+| `GET /orders/{id}/audit` | owning provider | Lines, split, ledger, and three integrity flags: `recomputed_fee_matches` (fee = formula), `split_adds_up` (subtotal = COGS + fee + payout), `ledger_matches_split` (paid: exactly the 4 ledger rows, each equal to the stored split; unpaid: empty ledger) |
 | `GET /admin/products` | admin | Stock + COGS |
 | `PUT /admin/products/{id}` | admin | Set stock (≥ 0) and/or COGS (> 0) |
 

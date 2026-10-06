@@ -137,7 +137,7 @@ The patient opens their order, sees an itemized list and total, and pays with a 
 - AC4.1: Every paid order stores `subtotal`, `cogs_total`, `fee_bps`, `platform_fee`, `provider_payout`, and per-line `unit_price`, `unit_cogs`, `qty`.
 - AC4.2: Every paid order has exactly four ledger entries: patient payment (= subtotal), Cerbo COGS, Cerbo fee, provider payable. The three allocations sum to the patient payment.
 - AC4.3: Ledger entries equal the order's split columns for every paid order.
-- AC4.4: An audit view for a paid order shows lines, split, ledger entries, and a recomputation check confirming the stored fee matches the formula.
+- AC4.4: An audit view for a paid order shows lines, split, ledger entries, and integrity checks confirming the stored fee matches the formula, the split adds up, and the ledger matches the split.
 - AC4.5: Paid orders and ledger entries are never updated or deleted.
 
 ### FR5. Provider dashboard

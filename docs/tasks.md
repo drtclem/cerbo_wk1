@@ -101,6 +101,7 @@ Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `P
 - [x] Pending orders are listed separately; cancelled ones aren't in totals.
 - [x] A provider sees only their own data.
 - [x] The audit returns lines, split, ledger rows, and `recomputed_fee_matches: true`; for an unpaid order, ledger is empty.
+- [x] Follow-up: the audit also returns `split_adds_up` and `ledger_matches_split`, true for a paid and a pending order.
 
 ### T10. Admin stock and COGS
 `GET /admin/products`, `PUT /admin/products/{id}`.
@@ -130,7 +131,7 @@ Generate API types from `/openapi.json` (`openapi-typescript`, npm script `gen:a
 **Manual checklist:** "My orders" lists the patient's orders with status; the order page shows items, total, and "Prices set by your provider on {date}"; payment method selector (OK / decline test card); decline shows a clear message and allows retry; out of stock shows a clear message; double-clicking Pay produces one payment (button disabled while pending, and the backend is idempotent anyway); the receipt shows paid status.
 
 ### T15. Provider dashboard, audit view, admin page
-**Manual checklist:** dashboard totals, paid orders table linking to the audit view, units per product, pending orders with Cancel; the audit view shows lines, split, ledger rows, and the ✓ recomputation check; the admin page edits stock and COGS, and providers/patients can't reach it.
+**Manual checklist:** dashboard totals, paid orders table linking to the audit view, units per product, pending orders with Cancel; the audit view shows lines, split, ledger rows, and the three ✓ integrity checks (fee matches formula, split adds up, ledger matches split); the admin page edits stock and COGS, and providers/patients can't reach it.
 
 ---
 

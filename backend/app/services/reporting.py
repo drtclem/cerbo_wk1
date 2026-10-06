@@ -7,6 +7,7 @@ from app.domain.money import compute_fee, line_amounts
 from app.models import LedgerEntry, Order, OrderLine, User
 
 _PATIENT_PAYMENT = "patient_payment"
+_CERBO_COGS = "cerbo_cogs"
 _CERBO_FEE = "cerbo_fee"
 _PROVIDER_PAYABLE = "provider_payable"
 
@@ -79,6 +80,8 @@ class OrderAudit:
     provider_payout_cents: int
     ledger: tuple[AuditLedgerEntry, ...]
     recomputed_fee_matches: bool
+    split_adds_up: bool
+    ledger_matches_split: bool
 
 
 def provider_dashboard(session: Session, provider_id: int) -> Dashboard:
@@ -131,6 +134,8 @@ def order_audit(session: Session, order: Order) -> OrderAudit:
         recomputed_fee_matches=(
             compute_fee(order.subtotal_cents, order.fee_bps) == order.platform_fee_cents
         ),
+        split_adds_up=_split_adds_up(order),
+        ledger_matches_split=_ledger_matches_split(order, ledger),
     )
 
 
@@ -214,6 +219,29 @@ def _units_sold(session: Session, provider_id: int) -> list[UnitSold]:
         )
         for product_id in sorted(qty_by_product)
     ]
+
+
+def _split_adds_up(order: Order) -> bool:
+    return order.subtotal_cents == (
+        order.cogs_total_cents + order.platform_fee_cents + order.provider_payout_cents
+    )
+
+
+def _ledger_matches_split(order: Order, ledger: list[LedgerEntry]) -> bool:
+    if order.status != "paid":
+        return not ledger
+    amounts: dict[str, int] = {}
+    for entry in ledger:
+        if entry.entry_type in amounts:
+            return False
+        amounts[entry.entry_type] = entry.amount_cents
+    expected = {
+        _PATIENT_PAYMENT: order.subtotal_cents,
+        _CERBO_COGS: order.cogs_total_cents,
+        _CERBO_FEE: order.platform_fee_cents,
+        _PROVIDER_PAYABLE: order.provider_payout_cents,
+    }
+    return amounts == expected
 
 
 def _audit_line(line: OrderLine) -> AuditLine:

@@ -84,6 +84,8 @@ class AuditResponse(BaseModel):
     provider_payout_cents: int
     ledger: list[AuditLedgerResponse]
     recomputed_fee_matches: bool
+    split_adds_up: bool
+    ledger_matches_split: bool
 
 
 def _paid_order(item: PaidOrderSummary) -> PaidOrderResponse:
@@ -160,6 +162,8 @@ def _audit(view: OrderAudit) -> AuditResponse:
         provider_payout_cents=view.provider_payout_cents,
         ledger=[_audit_entry(entry) for entry in view.ledger],
         recomputed_fee_matches=view.recomputed_fee_matches,
+        split_adds_up=view.split_adds_up,
+        ledger_matches_split=view.ledger_matches_split,
     )
 
 
