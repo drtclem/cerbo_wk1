@@ -1,8 +1,8 @@
-_Last updated: 2026-10-06 — T13: /orders/new loads patients and products, previews lines, and creates on Confirm._
+_Last updated: 2026-10-06 — T14: the patient order list and order page read orders and can pay._
 
 # Data flow
 
-Startup writes the seed into SQLite and keeps a session factory. `create_app` stores one `FakeNotifier` on `app.state.notifier`, one `FakePaymentProvider` on `app.state.payment_provider`, and one `FakeFulfillment` on `app.state.fulfillment`. `POST /orders/{order_id}/pay` reads the payment provider and the fulfillment stub. After startup, HTTP data moves on the health check, the user list, `GET /me`, the catalog routes, `GET /admin/products`, `PUT /admin/products/{product_id}`, `POST /orders/preview`, `POST /orders`, `GET /orders/{order_id}`, `GET /patient/orders`, `POST /orders/{order_id}/cancel`, `POST /orders/{order_id}/pay`, `GET /provider/dashboard`, and `GET /orders/{order_id}/audit`. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. An order preview reads `provider_products` and `products.unit_cogs_cents`, validates the resolved lines, and returns an `OrderSplit`. It does not write. Create copies that snapshot onto `orders` and `order_lines`, commits, then calls `order_created`. Reads and cancel return stored order columns. Pay claims the order, decrements `products.stock_qty`, charges the stored subtotal, writes `payment_ref`, `paid_at`, and four `ledger_entries`, commits, then calls `ship`. Line totals use `line_amounts` on the stored line for order JSON and for the audit. The pay receipt is that same order JSON. Ledger rows are not on it. `GET /provider/dashboard` sums `patient_payment`, `cerbo_fee`, and `provider_payable` from `ledger_entries` on this provider's paid orders. `GET /orders/{order_id}/audit` returns those ledger rows, checks `compute_fee`, and reports whether the stored split adds up and whether the ledger matches that split. Both reporting routes are read-only. `GET /admin/products` reads `products` ordered by `id` and does not commit. `PUT /admin/products/{product_id}` writes only the sent `stock_qty` and/or `unit_cogs_cents`, then commits. Existing `order_lines` keep their snapshotted `unit_cogs_cents`. A later preview reads the new catalog COGS. The Vite app sends and receives JSON for `GET /users`, `GET /me`, and, from `ProductsPage`, `GET /provider/products`, `PUT /provider/products/{product_id}`, and `POST /orders/preview`. `NewOrderPage` also sends `GET /users` with `X-User-Id`, `GET /provider/products`, `POST /orders/preview`, and, after Confirm, `POST /orders`. Those fetches use relative `/api` URLs. The dev server proxies that prefix to `http://127.0.0.1:8000` and strips `/api`. Document URLs stay in the SPA. `src/lib/money.ts` parses and formats dollars in the browser. Commas are accepted only as thousands separators. It does not compute a split. The you-receive figure is `provider_payout_cents` from the preview response. Edges from **HTTP client** are direct API callers, including pytest `TestClient`. The browser path is the diagram after the admin product routes.
+Startup writes the seed into SQLite and keeps a session factory. `create_app` stores one `FakeNotifier` on `app.state.notifier`, one `FakePaymentProvider` on `app.state.payment_provider`, and one `FakeFulfillment` on `app.state.fulfillment`. `POST /orders/{order_id}/pay` reads the payment provider and the fulfillment stub. After startup, HTTP data moves on the health check, the user list, `GET /me`, the catalog routes, `GET /admin/products`, `PUT /admin/products/{product_id}`, `POST /orders/preview`, `POST /orders`, `GET /orders/{order_id}`, `GET /patient/orders`, `POST /orders/{order_id}/cancel`, `POST /orders/{order_id}/pay`, `GET /provider/dashboard`, and `GET /orders/{order_id}/audit`. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. An order preview reads `provider_products` and `products.unit_cogs_cents`, validates the resolved lines, and returns an `OrderSplit`. It does not write. Create copies that snapshot onto `orders` and `order_lines`, commits, then calls `order_created`. Reads and cancel return stored order columns. Pay claims the order, decrements `products.stock_qty`, charges the stored subtotal, writes `payment_ref`, `paid_at`, and four `ledger_entries`, commits, then calls `ship`. Line totals use `line_amounts` on the stored line for order JSON and for the audit. The pay receipt is that same order JSON. Ledger rows are not on it. `GET /provider/dashboard` sums `patient_payment`, `cerbo_fee`, and `provider_payable` from `ledger_entries` on this provider's paid orders. `GET /orders/{order_id}/audit` returns those ledger rows, checks `compute_fee`, and reports whether the stored split adds up and whether the ledger matches that split. Both reporting routes are read-only. `GET /admin/products` reads `products` ordered by `id` and does not commit. `PUT /admin/products/{product_id}` writes only the sent `stock_qty` and/or `unit_cogs_cents`, then commits. Existing `order_lines` keep their snapshotted `unit_cogs_cents`. A later preview reads the new catalog COGS. The Vite app sends and receives JSON for `GET /users`, `GET /me`, and, from `ProductsPage`, `GET /provider/products`, `PUT /provider/products/{product_id}`, and `POST /orders/preview`. `NewOrderPage` also sends `GET /users` with `X-User-Id`, `GET /provider/products`, `POST /orders/preview`, and, after Confirm, `POST /orders`. `PatientOrdersPage` sends `GET /patient/orders`. `PatientOrderPage` sends `GET /orders/{order_id}` and, for a patient order in `pending_payment`, `POST /orders/{order_id}/pay` with `payment_method` `fake_card_ok` or `fake_card_decline`. Those fetches use relative `/api` URLs. The dev server proxies that prefix to `http://127.0.0.1:8000` and strips `/api`. Document URLs stay in the SPA. `src/lib/money.ts` parses and formats dollars in the browser. Commas are accepted only as thousands separators. It does not compute a split. The you-receive figure is `provider_payout_cents` from the preview response. Patient order pages format stored cents and do not compute a split. Edges from **HTTP client** are direct API callers, including pytest `TestClient`. The browser path is the diagram after the admin product routes.
 
 ```mermaid
 flowchart LR
@@ -197,7 +197,7 @@ flowchart LR
 
 ## Frontend shell
 
-The browser does not appear in the four diagrams above. It reaches `GET /users`, `GET /me`, the provider product and preview routes, and, from `NewOrderPage`, `POST /orders`, and only by fetching `/api/...`. The Vite dev server proxies that prefix and strips it. A document URL is not forwarded. `/products` is `ProductsPage`. `/orders/new` is `NewOrderPage`. `/dashboard`, `/patient/orders`, and `/admin/products` are still `PlaceholderPage`.
+The browser does not appear in the four diagrams above. It reaches `GET /users`, `GET /me`, the provider product and preview routes, and, from `NewOrderPage`, `POST /orders`, and only by fetching `/api/...`. `PatientOrdersPage` reaches `GET /patient/orders`. `PatientOrderPage` reaches `GET /orders/{order_id}` and `POST /orders/{order_id}/pay`. The Vite dev server proxies that prefix and strips it. A document URL is not forwarded. `/products` is `ProductsPage`. `/orders/new` is a static route and is still `NewOrderPage`. `/patient/orders` is `PatientOrdersPage`. `/orders/:orderId` is `PatientOrderRoute` / `PatientOrderPage`. `/dashboard` and `/admin/products` are still `PlaceholderPage`. `/orders/:orderId/audit` is not registered.
 
 ```mermaid
 flowchart LR
@@ -216,7 +216,9 @@ flowchart LR
   spa -->|"role"| nav["nav.ts"]
   nav -->|"/products"| products["ProductsPage"]
   nav -->|"/orders/new"| newOrder["NewOrderPage"]
-  nav -->|"dashboard, patient, admin"| placeholder["PlaceholderPage"]
+  nav -->|"/patient/orders"| myOrders["PatientOrdersPage"]
+  nav -->|"/dashboard and /admin/products"| placeholder["PlaceholderPage"]
+  myOrders -->|"link /orders/id"| orderPage["PatientOrderPage"]
   products -->|"GET /api/provider/products, X-User-Id"| proxy
   products -->|"PUT checkbox: enabled and saved cents"| proxy
   products -->|"PUT Save: enabled and parsed cents"| proxy
@@ -225,26 +227,43 @@ flowchart LR
   newOrder -->|"GET /api/provider/products, X-User-Id"| proxy
   newOrder -->|"POST preview when lines are valid, 300ms"| proxy
   newOrder -->|"POST /api/orders after Confirm"| proxy
+  myOrders -->|"GET /api/patient/orders, X-User-Id"| proxy
+  orderPage -->|"GET /api/orders/id, X-User-Id"| proxy
+  orderPage -->|"POST pay, fake_card_ok or fake_card_decline"| proxy
   proxy -->|"GET /provider/products"| providerList["get_provider_products"]
   proxy -->|"PUT /provider/products/id"| providerPut["put_provider_product"]
   proxy -->|"POST /orders/preview"| preview["post_order_preview"]
   proxy -->|"POST /orders"| createOrder["post_order"]
+  proxy -->|"GET /patient/orders"| patientList["get_patient_orders"]
+  proxy -->|"GET /orders/id"| orderGet["get_order_detail"]
+  proxy -->|"POST /orders/id/pay"| orderPay["post_pay_order"]
   providerList -->|"product JSON including stock_qty"| proxy
   providerPut -->|"updated product JSON"| proxy
   preview -->|"OrderSplit JSON"| proxy
   createOrder -->|"order JSON, patient_link"| proxy
+  patientList -->|"order list JSON"| proxy
+  orderGet -->|"order JSON"| proxy
+  orderPay -->|"order JSON or error"| proxy
   proxy -->|"JSON"| products
   proxy -->|"JSON"| newOrder
+  proxy -->|"JSON"| myOrders
+  proxy -->|"JSON"| orderPage
   products -->|"draft dollars"| money["money.ts"]
   newOrder -->|"draft dollars"| money
+  myOrders -->|"subtotal_cents"| money
+  orderPage -->|"stored cents"| money
   money -->|"parsed cents"| products
   money -->|"parsed cents"| newOrder
+  money -->|"formatted total"| myOrders
+  money -->|"formatted prices"| orderPage
   products -->|"stock text, not editable"| browser
   products -->|"you receive from payout cents"| browser
   newOrder -->|"patients, stock, split, patient link"| browser
+  myOrders -->|"status and total"| browser
+  orderPage -->|"Receipt when paid, else Pay"| browser
 ```
 
-`App` sends `GET /api/users` with no `X-User-Id`. `GET /api/me` is sent only after an id is chosen, and that request sets the header. `NewOrderPage` sends `GET /api/users` with `X-User-Id`. `RoleSwitcher` renders the user list from `App`. It does not fetch on its own. `nav.ts` sends a provider to `/products`. `/orders/new` renders `NewOrderPage`. `/dashboard`, `/patient/orders`, and `/admin/products` still render `PlaceholderPage`. `ProductsPage` and `NewOrderPage` call `parseDollarsToCents` and `formatCents`. Commas in the typed price are accepted only as thousands separators. Those functions do not call the API and do not compute a split. The checkbox PUT sends the new `enabled` flag and the last saved `default_price_cents`. It does not send an unsaved typed price. Save sends the checkbox state and the parsed cents. On `/products`, preview runs only after the price text changes, only while that row is enabled, and only after 300ms. The body is one line at qty 1. A disabled row does not call preview. On `/orders/new`, preview runs when every draft line has a valid qty and price, after 300ms. The body is the current lines. An empty line list does not call preview. Continue does not write. Confirm POSTs `/orders` with the patient id and the preview line ids, qtys, and unit prices. Copy writes the response `patient_link` with `navigator.clipboard.writeText`. `npm run gen:api` writes `src/api/schema.ts` from `http://127.0.0.1:8000/openapi.json` when someone runs the script. The page does not request that URL. The branch detail is in `flows/frontend-shell.md`.
+`App` sends `GET /api/users` with no `X-User-Id`. `GET /api/me` is sent only after an id is chosen, and that request sets the header. `NewOrderPage` sends `GET /api/users` with `X-User-Id`. `RoleSwitcher` renders the user list from `App`. It does not fetch on its own. `nav.ts` sends a provider to `/products`. `/orders/new` is a static route and still renders `NewOrderPage`. `/patient/orders` renders `PatientOrdersPage`. `/orders/:orderId` renders `PatientOrderRoute`, which renders `PatientOrderPage`. `/dashboard` and `/admin/products` still render `PlaceholderPage`. `/orders/:orderId/audit` is not registered. `ProductsPage` and `NewOrderPage` call `parseDollarsToCents` and `formatCents`. `PatientOrdersPage` and `PatientOrderPage` call `formatCents` on stored cents. Commas in the typed price are accepted only as thousands separators. Those functions do not call the API and do not compute a split. The checkbox PUT sends the new `enabled` flag and the last saved `default_price_cents`. It does not send an unsaved typed price. Save sends the checkbox state and the parsed cents. On `/products`, preview runs only after the price text changes, only while that row is enabled, and only after 300ms. The body is one line at qty 1. A disabled row does not call preview. On `/orders/new`, preview runs when every draft line has a valid qty and price, after 300ms. The body is the current lines. An empty line list does not call preview. Continue does not write. When Continue is disabled, the page shows one short reason: Pick a patient, Add at least one item, Fix the errors above, or Checking prices. A failed preview does not change the step. On review it stays on review and shows the error. Confirm POSTs `/orders` with the patient id and the preview line ids, qtys, and unit prices. Copy writes the response `patient_link` with `navigator.clipboard.writeText`. `PatientOrdersPage` GETs `/patient/orders` and lists each order's status and total, with a link to `/orders/{id}`. `PatientOrderPage` GETs `/orders/{id}`. A patient with status `pending_payment` POSTs `/orders/{id}/pay`. Pay is disabled while that request is in flight. A paid order renders heading Receipt and status Paid, and hides Pay. The date line reads the UTC date prefix of `created_at`. The page does not compute the split. `npm run gen:api` writes `src/api/schema.ts` from `http://127.0.0.1:8000/openapi.json` when someone runs the script. The page does not request that URL. The branch detail is in `flows/frontend-shell.md`.
 
 ## Startup
 

@@ -5,6 +5,8 @@ import { ApiError, apiGet } from "./api/client.ts";
 import { RoleSwitcher, type User } from "./components/RoleSwitcher.tsx";
 import { homeFor, navFor } from "./nav.ts";
 import { NewOrderPage } from "./pages/NewOrderPage.tsx";
+import { PatientOrderRoute } from "./pages/PatientOrderPage.tsx";
+import { PatientOrdersPage } from "./pages/PatientOrdersPage.tsx";
 import { PlaceholderPage } from "./pages/PlaceholderPage.tsx";
 import { ProductsPage } from "./pages/ProductsPage.tsx";
 
@@ -138,7 +140,23 @@ export default function App() {
           <Route path="/dashboard" element={<PlaceholderPage title="Dashboard" me={me} />} />
           <Route
             path="/patient/orders"
-            element={<PlaceholderPage title="My orders" me={me} />}
+            element={
+              me !== null ? (
+                <PatientOrdersPage key={me.id} userId={me.id} />
+              ) : (
+                <p>Loading account…</p>
+              )
+            }
+          />
+          <Route
+            path="/orders/:orderId"
+            element={
+              me !== null ? (
+                <PatientOrderRoute key={me.id} userId={me.id} role={me.role} />
+              ) : (
+                <p>Loading account…</p>
+              )
+            }
           />
           <Route
             path="/admin/products"

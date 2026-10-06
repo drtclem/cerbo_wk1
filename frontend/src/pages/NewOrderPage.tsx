@@ -202,8 +202,19 @@ export function NewOrderPage({ userId }: { userId: number }) {
   const signature = ready === null ? null : lineSignature(ready);
   const shownPreview = preview !== null && previewFor === signature ? preview : null;
   const patient = patients.find((user) => user.id === patientId) ?? null;
-  const canContinue =
-    patient !== null && shownPreview !== null && previewProblem === null;
+  const canContinue = patient !== null && shownPreview !== null && previewProblem === null;
+  let continueReason: string | null = null;
+  if (!canContinue) {
+    if (patient === null) {
+      continueReason = "Pick a patient";
+    } else if (lines.length === 0) {
+      continueReason = "Add at least one item";
+    } else if (lines.some((line) => lineError(line) !== null) || previewProblem !== null) {
+      continueReason = "Fix the errors above";
+    } else {
+      continueReason = "Checking prices";
+    }
+  }
 
   function editLines(next: DraftLine[]) {
     setLines(next);
@@ -264,21 +275,27 @@ export function NewOrderPage({ userId }: { userId: number }) {
     return <CreatedOrder order={created} patientName={patient?.name ?? "Patient"} />;
   }
 
-  if (step === "review" && shownPreview !== null && patient !== null) {
+  if (step === "review") {
+    const reviewError = previewProblem?.message ?? createError;
     return (
       <main>
         <h1>Review order</h1>
-        <p>Patient {patient.name}</p>
-        {shownPreview.lines.map((line, index) => (
-          <ReviewLine
-            key={`${line.product_id}-${index}`}
-            line={line}
-            productName={productById(products, line.product_id)?.name ?? "Product"}
-          />
-        ))}
-        <SplitBreakdown split={shownPreview} subtotalLabel="Patient pays" />
+        {patient !== null ? <p>Patient {patient.name}</p> : null}
+        {shownPreview !== null
+          ? shownPreview.lines.map((line, index) => (
+              <ReviewLine
+                key={`${line.product_id}-${index}`}
+                line={line}
+                productName={productById(products, line.product_id)?.name ?? "Product"}
+              />
+            ))
+          : null}
+        {shownPreview !== null ? (
+          <SplitBreakdown split={shownPreview} subtotalLabel="Patient pays" />
+        ) : null}
         <p>Later catalog changes don&apos;t affect this order.</p>
-        {createError !== null ? <p role="alert">{createError}</p> : null}
+        {shownPreview === null && previewProblem === null ? <p>Checking prices</p> : null}
+        {reviewError !== null ? <p role="alert">{reviewError}</p> : null}
         <button
           type="button"
           className="secondary"
@@ -293,7 +310,11 @@ export function NewOrderPage({ userId }: { userId: number }) {
         >
           Back
         </button>
-        <button type="button" disabled={busy} onClick={() => void confirmOrder()}>
+        <button
+          type="button"
+          disabled={busy || shownPreview === null || patientId === null || previewProblem !== null}
+          onClick={() => void confirmOrder()}
+        >
           Confirm
         </button>
       </main>
@@ -407,6 +428,7 @@ export function NewOrderPage({ userId }: { userId: number }) {
       >
         Continue
       </button>
+      {continueReason !== null ? <p>{continueReason}</p> : null}
     </main>
   );
 }

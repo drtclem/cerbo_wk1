@@ -121,3 +121,15 @@ _Running notes for the "How you used AI" section of the writeup. Add an entry wh
   - Fixed in T14 prompt: Continue disabled with no explanation; a failed re-preview kicking the provider from review back to the builder.
   - Accepted as-is: leaving the page mid-Confirm can still create the order (correct: the server request completed, and it shows on the dashboard as pending); `formatCents` could throw on an unsafe integer (the backend never returns one; money columns are SQLite integers far below 2^53 cents).
 - **Note:** the automated "Copy link" click failed only because the test browser window wasn't focused (a clipboard-permission quirk of automation), not a code bug.
+
+### 2026-10-06 · Git workflow incident (between T12 and T14) · Cursor background agent
+- **What happened:** a Cursor agent created its own branch (`cursor/admin-catalog-and-provider-products`), committed T13 under an unrelated message ("Planning docs; oracle: Switchboard"), and nothing after T9 was pushed. While fixing it, the agent ran `git reset HEAD~1` in the background, un-committing T13 mid-cleanup and blocking branch switches.
+- **Resolution:** stopped the agent, re-committed T13, fast-forwarded `main`, pushed, deleted the stray branch. No work lost (git's reflog showed every step). Also set a global git identity; earlier commits had used an auto-guessed address.
+- **Lesson:** agents need explicit guardrails on version control. Going forward: one agent at a time, start each task on `main` (`git branch --show-current`), and the human owns commits and pushes.
+
+### 2026-10-06 · T14 patient order, pay, receipt (+ T13 fixes) · Cursor agent + verifier/reviewer
+- **Result:** VERIFIED, reviewer clean. My orders → order page (items, total, "Prices set by your provider on {date}") → pay with OK or decline test card → receipt. Decline and out-of-stock show the API's message and leave the order payable; Pay is disabled while a request is in flight (the backend is idempotent anyway). The page never computes money.
+- **T13 fixes done:** disabled Continue now explains why ("Pick a patient", "Add at least one item", "Fix the errors above", "Checking prices"); a failed preview on the review step stays on review.
+- **Agent stayed inside the git guardrail:** told "do not create branches or run git commit/reset/push", it left everything uncommitted on `main`.
+- **Deferred, accepted:** a malformed date like `2026-02-31` would render as "Feb 31". Not reachable: the server generates `created_at` itself.
+- **Browser check:** the agent paid order 3 for Jane Doe after a decline and an out-of-stock attempt (stock temporarily set to 0 via admin, then restored to 50).
