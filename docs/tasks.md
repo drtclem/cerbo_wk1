@@ -138,9 +138,9 @@ Generate API types from `/openapi.json` (`openapi-typescript`, npm script `gen:a
 ## Phase 4: Wrap-up
 
 ### T16. End-to-end check and README
-- [ ] An API-level pytest runs the full flow: provider creates order → patient declines → patient pays → dashboard and audit reflect it to the cent.
-- [ ] README: one-paragraph overview, setup and run commands, demo walkthrough (with seed users), **"What's stubbed"** table (PRD §8), links to `docs/`.
-- [ ] Diagrammer has produced `docs/diagrams/` (overview, data model, pay flow).
+- [x] An API-level pytest runs the full flow: provider creates order → patient declines → patient pays → dashboard and audit reflect it to the cent.
+- [x] README: one-paragraph overview, setup and run commands, demo walkthrough (with seed users), **"What's stubbed"** table (PRD §8), links to `docs/`.
+- [x] Diagrammer has produced `docs/diagrams/` (overview, data model, pay flow).
 
 ### T17. Writeup (owner + Claude, not Cursor)
 Key decisions and tradeoffs (from `decisions.md`), what was cut and what's next (PRD §10, architecture §11), and how AI was used (from `docs/ai-log.md`).

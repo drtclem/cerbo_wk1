@@ -157,7 +157,7 @@ The patient opens their order, sees an itemized list and total, and pays with a 
 | Seam | Stub | Real version later |
 |---|---|---|
 | Auth | Role switcher sends a user ID header; real role/ownership checks | OAuth/SSO; patient magic links |
-| Payments | `FakePaymentProvider`: approves by default; `fake_card_decline` declines; idempotent by key | Stripe (order ID as idempotency key) + webhooks |
+| Payments | `FakePaymentProvider`: approves by default; `fake_card_decline` declines; replays the same attempt (key + amount + method) without charging twice; after a decline, a different card is a new attempt | Stripe with a per-attempt idempotency key + webhooks |
 | Notifications | Console log; patient link shown in provider UI | Email/SMS; portal messaging |
 | Fulfillment | Console log after payment commits | Warehouse/shipping integration |
 
