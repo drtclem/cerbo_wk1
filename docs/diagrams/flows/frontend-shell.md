@@ -1,4 +1,4 @@
-_Last updated: 2026-10-06 — T18: hand-written theme, top bar shell, shared UI components._
+_Last updated: 2026-10-06 — T19 fixes: split bar widths are percentages of the track; enabled product rows preview payout on load._
 
 # Frontend shell
 
@@ -75,7 +75,7 @@ The link labels are Products, New order, Dashboard, My orders, and Stock & COGS.
 
 ## Products
 
-`ProductsPage` calls `apiGet("/provider/products", userId)` when it mounts. The client fetches `/api/provider/products` with `X-User-Id`. The proxy strips `/api`. A failed list shows the error message and no rows. Each row shows `name`, `sku`, and stock as `{n} in stock` or `Out of stock`. Stock is not an input and is not sent back.
+`ProductsPage` calls `apiGet("/provider/products", userId)` when it mounts. The client fetches `/api/provider/products` with `X-User-Id`. The proxy strips `/api`. A failed list shows the error message and no rows. Products render as one dense table. Each row shows `name`, `sku`, and stock as `{n} in stock` or `Out of stock`. Stock is not an input and is not sent back. Enabled, default price, and Save stay on the row. The qty-1 payout line is still `you'd receive` plus `formatCents` of `provider_payout_cents`. Each enabled row POSTs `/orders/preview` once on mount (qty 1, saved `default_price_cents`, no debounce). A disabled row does not. Editing the price still debounces 300ms and posts the same preview. Save stays secondary until that price is dirty, then primary.
 
 ```mermaid
 sequenceDiagram
@@ -92,6 +92,15 @@ sequenceDiagram
   API-->>Proxy: 200 provider product JSON
   Proxy-->>Page: product JSON
   Page-->>Browser: name, sku, and stock text
+
+  loop each enabled product
+    Page->>Proxy: POST /api/orders/preview
+    Note over Page,Proxy: qty 1 and saved default_price_cents
+    Proxy->>API: POST /orders/preview
+    API-->>Proxy: 200 OrderSplit JSON
+    Proxy-->>Page: provider_payout_cents
+    Page-->>Browser: you'd receive that amount at qty 1
+  end
 
   alt Enabled checkbox changes
     Page->>Proxy: PUT /api/provider/products/id
@@ -237,8 +246,8 @@ sequenceDiagram
     else Back
       Browser->>Page: Back
       Page-->>Browser: builder, no order created
-    else Confirm
-      Browser->>Page: Confirm
+    else Confirm order
+      Browser->>Page: Confirm order
       Page->>Proxy: POST /api/orders
       Note over Page,Proxy: patient_id and preview product_id, qty, unit_price_cents
       Proxy->>API: POST /orders
@@ -263,9 +272,9 @@ sequenceDiagram
 
 Qty must match `^[1-9]\d*$` and be a safe integer. Any other qty shows "Quantity must be at least 1." The unit price goes through `parseDollarsToCents`. A thrown `Error` shows that message. Preview waits `300` ms and POSTs `{lines: [{product_id, qty, unit_price_cents}]}`. Editing a line clears the current preview error. The shown preview is the response whose lines still match the draft. A numeric `line_index` is shown on that line. `line_index` null is shown once under the lines. Either one disables Continue, as does a missing patient or a preview that does not match the current lines. When Continue is disabled, the page shows one short reason, in this order: Pick a patient when no patient is selected, Add at least one item when the line list is empty, Fix the errors above when a line is invalid or a preview error is set, and Checking prices while the matching preview is not back yet.
 
-On the builder, a matching preview renders `SplitBar` with caption Subtotal and the stored `subtotal_cents`, `cogs_total_cents`, `platform_fee_cents`, and `provider_payout_cents`. `SplitBar` / `splitBarLayout` only sizes segments and labels with `formatCents`; it does not recompute the fee. Each priced line still shows `line_total_cents`, `line_cogs_cents`, and `line_margin_cents` via `formatCents`.
+The builder is two columns on desktop (one column under 900px, summary below). The left side is the patient picker and an editable line table: product, stock, qty, unit price, and line total. Line total is `line_total_cents` from the matching preview, via `Money`. The page does not show per-line COGS or margin, and it does not multiply qty by price. The right side is a sticky summary: a `SplitBar` (segment labels hidden; the bar still has its aria-label) plus four figures printed with `Money` from the preview cents — Subtotal, COGS, Platform fee, and You receive — then Continue and the disabled reason. COGS, Platform fee, and You receive have a color dot matching that segment. `splitBarLayout` sets segment widths to percentages of the subtotal that sum to 100. It does not measure the track. A non-zero fee segment has CSS `min-width: 3px`. Labels are `formatCents` of the API cents. The builder caption passed into `SplitBar` is Subtotal. Stock and line total do not wrap.
 
-Review stays on `/orders/new`. It shows the patient name, and for each preview line the product name, qty, unit price, line total, COGS, and margin. The same `SplitBar` uses caption Patient pays. It also shows "Later catalog changes don't affect this order." Back sets the step to the builder and does not POST. Confirm POSTs `/orders` with `patient_id` and the preview lines' `product_id`, `qty`, and `unit_price_cents`. An `ApiError` whose `lineIndex` is a number clears the preview, returns to the builder, and shows that message on the line. Any other create error stays on review. The preview effect depends on the lines and the user id, not on the step. A failed preview sets the problem and does not change the step. On review, that message is the alert, the heading stays Review order, and Confirm stays disabled. The page does not return to the builder for a preview error. Success shows "Order created", the patient name, and `patient_link` from the response. The page does not build that path. Copy calls `navigator.clipboard.writeText` with `patient_link`. A failed copy shows "Could not copy the link".
+Review stays on `/orders/new` in the same two-column layout. It shows Patient and the patient name as a label and value, and a read-only table of product, qty, unit price, and line total. The summary uses caption Patient pays, the same four figures, and "Later catalog changes don't affect this order." Back is secondary and sets the step to the builder. It does not POST. Confirm order is the only primary button. It POSTs `/orders` with `patient_id` and the preview lines' `product_id`, `qty`, and `unit_price_cents`. An `ApiError` whose `lineIndex` is a number clears the preview, returns to the builder, and shows that message on the line. Any other create error stays on review. The preview effect depends on the lines and the user id, not on the step. A failed preview sets the problem and does not change the step. On review, that message is the alert, the heading stays Review order, and Confirm order stays disabled. The page does not return to the builder for a preview error. Success shows "Order created", the patient name, the same read-only figures from the created order's cents, and `patient_link` in a read-only field. The page does not build that path. Copy calls `navigator.clipboard.writeText` with `patient_link`. A failed copy shows "Could not copy the link".
 
 ## My orders
 
@@ -297,7 +306,7 @@ sequenceDiagram
   end
 ```
 
-The heading is My orders. Each order is an article. The link text is `Order {id}` and the path is `/orders/{id}`. Status is a `StatusPill` (Pending payment, Paid, Cancelled, or the stored status). Total is `<Money cents={subtotal_cents} />`, which calls `formatCents`. The page does not compute a split.
+The heading is My orders. Orders are one table. The link text is `Order {id}` and the path is `/orders/{id}`. Status is a `StatusPill` (Pending payment, Paid, Cancelled, or the stored status). Total is `<Money cents={subtotal_cents} />`, which calls `formatCents`. The page does not compute a split.
 
 ## Order and pay
 
@@ -350,7 +359,7 @@ sequenceDiagram
   end
 ```
 
-The heading is Receipt when `status` is `paid`, and Order otherwise. Status is a `StatusPill`. Each line shows `product_name`, qty, and `Money` for `unit_price_cents` and `line_total_cents`. Total is `Money` of `subtotal_cents`. The page does not show COGS, the platform fee, or the provider payout, and it does not compute the split.
+The page is a centred receipt, max width 560px. The heading is Receipt when `status` is `paid`, and Order otherwise. Status is a `StatusPill`. The provider line is `From {name}`, using the user list `App` already loaded (`provider_id`); the page does not fetch users. Each line shows `product_name`, qty, `Money` of `unit_price_cents` as "each", and `Money` of `line_total_cents`. Total is `Money` of `subtotal_cents`. The page does not show a split bar, COGS, the platform fee, or the provider payout, and it does not compute the split.
 
 The date line is `Prices set by your provider on {Mon D}`. `orderDateLabel` reads the `YYYY-MM-DD` prefix of `created_at`. The stored value is UTC `YYYY-MM-DDTHH:MM:SSZ`, so that prefix is the UTC date. The month is Jan through Dec and the day has no leading zero. A prefix that does not match is shown as the stored `created_at`.
 
@@ -411,13 +420,13 @@ sequenceDiagram
   end
 ```
 
-The heading is Dashboard. GMV, Platform fees, and Earnings are `Money` of `gmv_cents`, `platform_fee_cents`, and `earnings_cents` (Earnings uses `emphasize`). The page does not compute a fee split.
+The heading is Dashboard. The lead sentence is "You've earned" plus `Money` of `earnings_cents` (emphasized) and the paid-order count. Under it, a `SplitBar` captioned GMV uses `gmv_cents`, `platform_fee_cents`, and `earnings_cents`. COGS for that bar is `gmv_cents - platform_fee_cents - earnings_cents`, for drawing only. The page does not compute a fee.
 
-Paid orders use the heading Paid orders. An empty list renders `EmptyState` "No paid orders yet. Create one from" with a New order link to `/orders/new`. Otherwise a table shows Date, Patient, Subtotal, Fee, Payout, Split, and Audit. Date is the UTC `YYYY-MM-DD` prefix of `paid_at`, shown as Mon D, or the stored value when that prefix does not match. Patient is `patient_name`. The money columns are `Money` of `subtotal_cents`, `platform_fee_cents`, and `provider_payout_cents` (payout emphasized). The Split column is a compact `SplitBar`; COGS for the bar is `subtotal_cents - platform_fee_cents - provider_payout_cents` for drawing only. The Audit link text is Audit and its path is `audit_link` from that row. The page does not build `/orders/{id}/audit`.
+Paid orders use the heading Paid orders. An empty list renders `EmptyState` "No paid orders yet. Create one from" with a New order link to `/orders/new`. Otherwise a table shows Date, Patient, a Paid `StatusPill`, Subtotal, Fee, Payout, a compact `SplitBar`, and Audit. Date is the UTC `YYYY-MM-DD` prefix of `paid_at`, shown as Mon D, or the stored value when that prefix does not match. Patient is `patient_name`. The money columns are `Money` of `subtotal_cents`, `platform_fee_cents`, and `provider_payout_cents` (payout emphasized). COGS for the compact bar is `subtotal_cents - platform_fee_cents - provider_payout_cents` for drawing only. The Audit link text is Audit and its path is `audit_link` from that row. The page does not build `/orders/{id}/audit`.
 
-Units sold uses the heading Units sold. An empty list says No units sold. Each row is `product_name` and `qty`.
+Pending orders come next. An empty list says No pending orders. Otherwise a table shows Order {id}, `patient_name`, the date label on `created_at`, a Pending payment `StatusPill`, and Cancel order. Cancel POSTs `/orders/{id}/cancel` with no body. The button is disabled while that id is in flight, and a ref blocks a second call for that id before the state updates. The cancel response is not rendered. A success GETs `/provider/dashboard` again and replaces the page. A failed cancel, or a failed refetch, shows `InlineError` on that order and leaves the loaded dashboard in place.
 
-Pending orders uses the heading Pending orders. An empty list says No pending orders. Each order shows Order {id}, `patient_name`, and the same date label on `created_at`. Cancel POSTs `/orders/{id}/cancel` with no body. The button is disabled while that id is in flight, and a ref blocks a second call for that id before the state updates. The cancel response is not rendered. A success GETs `/provider/dashboard` again and replaces the page. A failed cancel, or a failed refetch, shows `InlineError` on that order and leaves the loaded dashboard in place.
+Units sold is last. An empty list says No units sold. Otherwise a table shows `product_name` and `qty`.
 
 ## Audit
 
@@ -452,13 +461,13 @@ sequenceDiagram
   end
 ```
 
-The heading is Audit. The page shows Order {id} and a `StatusPill` for status. Each line shows `product_name`, qty, and `Money` for `unit_price_cents`, `unit_cogs_cents`, and `line_total_cents`.
+The heading is Audit, with a `StatusPill` and Order {id}. Lines are a table: product, qty, and `Money` for `unit_price_cents`, `unit_cogs_cents`, and `line_total_cents`.
 
 The split heading is Split. The page renders `SplitBar` with the stored `subtotal_cents`, `cogs_total_cents`, `platform_fee_cents`, and `provider_payout_cents` (default caption Patient pays). It does not compute the fee.
 
-The ledger heading is Ledger. An empty list says No ledger entries. Each row shows a label for `entry_type` and `Money` of `amount_cents`. The labels are Patient payment, Cerbo COGS, Cerbo fee, and Provider payable. Any other `entry_type` is shown as stored.
+The ledger heading is Ledger. An empty list says No ledger entries. Otherwise an accountant-style table shows a label for `entry_type` and `Money` of `amount_cents`, right-aligned. Rows are ordered Cerbo COGS, Cerbo fee, Provider payable, then Patient payment, which has a rule above it. Any other `entry_type` is shown as stored, between Provider payable and Patient payment. The labels are Patient payment, Cerbo COGS, Cerbo fee, and Provider payable.
 
-The integrity heading is Integrity. The three flags come from the response: `recomputed_fee_matches` is Fee matches formula, `split_adds_up` is Split adds up, and `ledger_matches_split` is Ledger matches split. A true flag shows a check. A false flag shows an x. The page does not recompute them.
+The integrity heading is Integrity. The three flags come from the response and render as a checklist (icon plus words): `recomputed_fee_matches` is "Fee matches the {rate} formula" where `{rate}` is `fee_bps` formatted with integer math (`75` → `0.75%`), `split_adds_up` is "Split adds up to the subtotal", and `ledger_matches_split` is "Ledger matches the split". A true flag shows a check icon. A false flag shows an x icon. The page does not recompute the fee or the flags.
 
 ## Admin products
 
@@ -515,7 +524,7 @@ sequenceDiagram
   end
 ```
 
-The heading is Stock & COGS. Each product shows `name`, `sku`, and Suggested price as `formatCents(suggested_price_cents)`. Suggested price is not an input. Stock starts as the stored `stock_qty`. COGS starts as `formatCents(unit_cogs_cents)`, so the field is dollars. Save reads the stock text as a whole number from `0` upward that is a safe integer. Any other stock shows "Stock must be at least 0." and does not PUT. COGS goes through `parseDollarsToCents`. A thrown `Error` shows that message. Parsed cents below 1 show "COGS must be greater than zero." and do not PUT. A valid save PUTs `{stock_qty, unit_cogs_cents}` to `/admin/products/{id}`. Both fields are sent. Save is disabled while that request is in flight, and a ref blocks a second call before the state updates. Success replaces that product in the list and shows the returned stock and `formatCents` of the returned `unit_cogs_cents`. The page does not refetch the list. A PUT error stays on that row.
+The heading is Stock & COGS. Products are one dense table: `name`, `sku`, Suggested price as `Money` of `suggested_price_cents`, an inline stock input, an inline COGS input, and Save. Suggested price is not an input. Stock starts as the stored `stock_qty`. COGS starts as `formatCents(unit_cogs_cents)`, so the field is dollars. Save reads the stock text as a whole number from `0` upward that is a safe integer. Any other stock shows "Stock must be at least 0." and does not PUT. COGS goes through `parseDollarsToCents`. A thrown `Error` shows that message. Parsed cents below 1 show "COGS must be greater than zero." and do not PUT. A valid save PUTs `{stock_qty, unit_cogs_cents}` to `/admin/products/{id}`. Both fields are sent. Save is disabled while that request is in flight, and a ref blocks a second call before the state updates. Success replaces that product in the list and shows the returned stock and `formatCents` of the returned `unit_cogs_cents`. The page does not refetch the list. A PUT error stays on that row.
 
 ## Dollars and shared UI
 

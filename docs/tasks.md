@@ -162,6 +162,6 @@ Replace Pico with a small hand-written stylesheet built on the tokens in `ui-des
 ### T19. Apply the design to every page
 Order builder (two columns, sticky summary with live split bar), review/created, patient order page (receipt layout, no split bar), dashboard (lead sentence, totals bar, tables with compact bars and status pills), audit (ledger table + three-item checklist), admin (dense inline-edit table), products page.
 **Done when:**
-- [ ] Manual click-through of the README demo walkthrough on a fresh database: every number matches the README to the cent.
-- [ ] Each page matches its description in `ui-design.md`; screenshots of each page at desktop width attached to the report.
-- [ ] Builds, lint, and all tests pass.
+- [x] Manual click-through of the README demo walkthrough on a fresh database: every number matches the README to the cent.
+- [x] Each page matches its description in `ui-design.md`; screenshots of each page at desktop width attached to the report.
+- [x] Builds, lint, and all tests pass.

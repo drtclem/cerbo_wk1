@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { ApiError, apiGet, apiSend, errorText } from "../api/client.ts";
 import type { components } from "../api/schema.ts";
+import { InlineError } from "../components/InlineError.tsx";
+import { Money } from "../components/Money.tsx";
 import { formatCents, parseDollarsToCents } from "../lib/money.ts";
 
 type ProviderProduct = components["schemas"]["ProviderProductResponse"];
@@ -36,7 +38,7 @@ export function ProductsPage({ userId }: { userId: number }) {
   }, [userId]);
 
   if (error !== null) {
-    return <p role="alert">{error}</p>;
+    return <InlineError message={error} />;
   }
   if (products === null) {
     return <p>Loading products…</p>;
@@ -45,9 +47,30 @@ export function ProductsPage({ userId }: { userId: number }) {
   return (
     <div className="page">
       <h1>Products</h1>
-      {products.map((product) => (
-        <ProductRow key={product.product_id} product={product} userId={userId} />
-      ))}
+      {products.length === 0 ? <p className="muted">No products yet.</p> : null}
+      {products.length > 0 ? (
+        <div className="table-wrap">
+          <table className="dense">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Stock</th>
+                <th>Enabled</th>
+                <th>Default price</th>
+                <th>You receive</th>
+                <th>
+                  <span className="visually-hidden">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((product) => (
+                <ProductRow key={product.product_id} product={product} userId={userId} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -64,20 +87,24 @@ function ProductRow({ product, userId }: { product: ProviderProduct; userId: num
   const requestSeq = useRef(0);
 
   useEffect(() => {
-    if (!dirty || !enabled) {
+    if (!enabled) {
       return;
     }
     let cancelled = false;
     const timer = setTimeout(() => {
       let cents: number;
-      try {
-        cents = parseDollarsToCents(draft);
-      } catch {
-        if (!cancelled) {
-          setPayoutCents(null);
-          setPreviewError("Invalid dollar amount");
+      if (!dirty) {
+        cents = savedCents;
+      } else {
+        try {
+          cents = parseDollarsToCents(draft);
+        } catch {
+          if (!cancelled) {
+            setPayoutCents(null);
+            setPreviewError("Invalid dollar amount");
+          }
+          return;
         }
-        return;
       }
       apiSend<PreviewResponse>("/orders/preview", userId, "POST", {
         lines: [{ product_id: product.product_id, qty: 1, unit_price_cents: cents }],
@@ -99,12 +126,12 @@ function ProductRow({ product, userId }: { product: ProviderProduct; userId: num
           setPayoutCents(null);
           setPreviewError(errorText(cause));
         });
-    }, PREVIEW_DELAY_MS);
+    }, dirty ? PREVIEW_DELAY_MS : 0);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [dirty, enabled, draft, product.product_id, userId]);
+  }, [dirty, enabled, draft, savedCents, product.product_id, userId]);
 
   function beginRequest(): number {
     requestSeq.current += 1;
@@ -188,46 +215,73 @@ function ProductRow({ product, userId }: { product: ProviderProduct; userId: num
   const message = previewError ?? saveError;
 
   return (
-    <article>
-      <header>
-        <strong>{product.name}</strong>
-        <p>{product.sku}</p>
-      </header>
-      <p>{stockLabel(product.stock_qty)}</p>
-      <label>
-        <input
-          type="checkbox"
-          checked={enabled}
-          disabled={busy}
-          onChange={(event) => {
-            void toggleEnabled(event.target.checked);
-          }}
-        />
-        Enabled
-      </label>
-      <label>
-        Default price
-        <input
-          value={draft}
-          inputMode="decimal"
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setDirty(true);
-            setSaveError(null);
-            setPayoutCents(null);
-            setPreviewError(null);
-          }}
-        />
-      </label>
-      {payoutCents !== null ? (
-        <p>
-          you'd receive <span className="you-receive">{formatCents(payoutCents)}</span> at qty 1
-        </p>
+    <>
+      <tr>
+        <td>
+          <div className="cell-title">{product.name}</div>
+          <div className="muted">{product.sku}</div>
+        </td>
+        <td>
+          <span className={product.stock_qty === 0 ? "stock stock--out" : "stock"}>
+            {stockLabel(product.stock_qty)}
+          </span>
+        </td>
+        <td>
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={enabled}
+              disabled={busy}
+              onChange={(event) => {
+                void toggleEnabled(event.target.checked);
+              }}
+            />
+            Enabled
+          </label>
+        </td>
+        <td>
+          <input
+            className="input-money"
+            aria-label={`Default price for ${product.name}`}
+            value={draft}
+            inputMode="decimal"
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setDirty(true);
+              setSaveError(null);
+              setPayoutCents(null);
+              setPreviewError(null);
+            }}
+          />
+        </td>
+        <td>
+          {payoutCents !== null ? (
+            <span>
+              you&apos;d receive <Money cents={payoutCents} emphasize /> at qty 1
+            </span>
+          ) : null}
+        </td>
+        <td>
+          <div className="btn-row">
+            <button
+              type="button"
+              className={dirty ? undefined : "secondary"}
+              disabled={busy}
+              onClick={() => void savePrice()}
+            >
+              Save
+            </button>
+            {busy ? <p className="btn-hint">Saving</p> : null}
+          </div>
+        </td>
+      </tr>
+      {message !== null ? (
+        <tr>
+          <td colSpan={6}>
+            <InlineError message={message} />
+          </td>
+        </tr>
       ) : null}
-      {message !== null ? <p role="alert">{message}</p> : null}
-      <button type="button" disabled={busy} onClick={() => void savePrice()}>
-        Save
-      </button>
-    </article>
+    </>
   );
 }

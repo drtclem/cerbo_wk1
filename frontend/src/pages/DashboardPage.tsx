@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { apiGet, apiSend, errorText } from "../api/client.ts";
@@ -7,6 +7,7 @@ import { EmptyState } from "../components/EmptyState.tsx";
 import { InlineError } from "../components/InlineError.tsx";
 import { Money } from "../components/Money.tsx";
 import { SplitBar } from "../components/SplitBar.tsx";
+import { StatusPill } from "../components/StatusPill.tsx";
 
 type Dashboard = components["schemas"]["DashboardResponse"];
 type PendingOrder = components["schemas"]["PendingOrderResponse"];
@@ -89,107 +90,178 @@ export function DashboardPage({ userId }: { userId: number }) {
   }
 
   if (loadError !== null) {
-    return <p role="alert">{loadError}</p>;
+    return <InlineError message={loadError} />;
   }
   if (dashboard === null) {
     return <p>Loading dashboard…</p>;
   }
 
+  const paidCount = dashboard.paid_orders.length;
+  const orderWord = paidCount === 1 ? "order" : "orders";
+  // Remainder of API cents so the totals bar can draw COGS. Not a fee calculation.
+  const totalsCogsCents =
+    dashboard.gmv_cents - dashboard.platform_fee_cents - dashboard.earnings_cents;
+
   return (
     <div className="page">
       <h1>Dashboard</h1>
-      <p>
-        GMV <Money cents={dashboard.gmv_cents} />
+      <p className="lead">
+        You&apos;ve earned <Money cents={dashboard.earnings_cents} emphasize /> from {paidCount}{" "}
+        paid {orderWord}.
       </p>
-      <p>
-        Platform fees <Money cents={dashboard.platform_fee_cents} />
-      </p>
-      <p>
-        Earnings <Money cents={dashboard.earnings_cents} emphasize />
-      </p>
-      <h2>Paid orders</h2>
-      {dashboard.paid_orders.length === 0 ? (
-        <EmptyState actionTo="/orders/new" actionLabel="New order">
-          No paid orders yet. Create one from
-        </EmptyState>
-      ) : null}
-      {dashboard.paid_orders.length > 0 ? (
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Patient</th>
-              <th className="num">Subtotal</th>
-              <th className="num">Fee</th>
-              <th className="num">Payout</th>
-              <th>Split</th>
-              <th>Audit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {dashboard.paid_orders.map((order) => {
-              const cogsCents =
-                order.subtotal_cents - order.platform_fee_cents - order.provider_payout_cents;
-              return (
-                <tr key={order.id}>
-                  <td>{orderDateLabel(order.paid_at)}</td>
-                  <td>{order.patient_name}</td>
-                  <td className="num">
-                    <Money cents={order.subtotal_cents} />
-                  </td>
-                  <td className="num">
-                    <Money cents={order.platform_fee_cents} />
-                  </td>
-                  <td className="num">
-                    <Money cents={order.provider_payout_cents} emphasize />
-                  </td>
-                  <td style={{ minWidth: "7rem" }}>
-                    <SplitBar
-                      compact
-                      subtotalCents={order.subtotal_cents}
-                      cogsCents={cogsCents}
-                      feeCents={order.platform_fee_cents}
-                      payoutCents={order.provider_payout_cents}
-                    />
-                  </td>
-                  <td>
-                    <Link to={order.audit_link}>Audit</Link>
-                  </td>
+      <SplitBar
+        subtotalCents={dashboard.gmv_cents}
+        cogsCents={totalsCogsCents}
+        feeCents={dashboard.platform_fee_cents}
+        payoutCents={dashboard.earnings_cents}
+        subtotalCaption="GMV"
+      />
+
+      <section className="section">
+        <h2>Paid orders</h2>
+        {dashboard.paid_orders.length === 0 ? (
+          <EmptyState actionTo="/orders/new" actionLabel="New order">
+            No paid orders yet. Create one from
+          </EmptyState>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Patient</th>
+                  <th>Status</th>
+                  <th className="num">Subtotal</th>
+                  <th className="num">Fee</th>
+                  <th className="num">Payout</th>
+                  <th>Split</th>
+                  <th>Audit</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      ) : null}
-      <h2>Units sold</h2>
-      {dashboard.units_sold.length === 0 ? <p>No units sold.</p> : null}
-      {dashboard.units_sold.map((unit) => (
-        <p key={unit.product_id}>
-          {unit.product_name} {unit.qty}
-        </p>
-      ))}
-      <h2>Pending orders</h2>
-      {dashboard.pending_orders.length === 0 ? <p>No pending orders.</p> : null}
-      {dashboard.pending_orders.map((order) => (
-        <article key={order.id}>
-          <header>
-            <strong>Order {order.id}</strong>
-          </header>
-          <p>{order.patient_name}</p>
-          <p>{orderDateLabel(order.created_at)}</p>
-          <button
-            type="button"
-            className="danger-quiet"
-            disabled={cancellingIds.has(order.id)}
-            onClick={() => void cancelOrder(order)}
-          >
-            Cancel
-          </button>
-          {cancelError?.id === order.id ? (
-            <InlineError message={cancelError.message} />
-          ) : null}
-        </article>
-      ))}
+              </thead>
+              <tbody>
+                {dashboard.paid_orders.map((order) => {
+                  const cogsCents =
+                    order.subtotal_cents - order.platform_fee_cents - order.provider_payout_cents;
+                  return (
+                    <tr key={order.id}>
+                      <td>{orderDateLabel(order.paid_at)}</td>
+                      <td>{order.patient_name}</td>
+                      <td>
+                        <StatusPill status="paid" />
+                      </td>
+                      <td className="num">
+                        <Money cents={order.subtotal_cents} />
+                      </td>
+                      <td className="num">
+                        <Money cents={order.platform_fee_cents} />
+                      </td>
+                      <td className="num">
+                        <Money cents={order.provider_payout_cents} emphasize />
+                      </td>
+                      <td className="split-cell">
+                        <SplitBar
+                          compact
+                          subtotalCents={order.subtotal_cents}
+                          cogsCents={cogsCents}
+                          feeCents={order.platform_fee_cents}
+                          payoutCents={order.provider_payout_cents}
+                        />
+                      </td>
+                      <td>
+                        <Link to={order.audit_link}>Audit</Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="section">
+        <h2>Pending orders</h2>
+        {dashboard.pending_orders.length === 0 ? <p className="muted">No pending orders.</p> : null}
+        {dashboard.pending_orders.length > 0 ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Patient</th>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th>
+                    <span className="visually-hidden">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {dashboard.pending_orders.map((order) => {
+                  const cancellingThis = cancellingIds.has(order.id);
+                  return (
+                    <Fragment key={order.id}>
+                      <tr>
+                        <td>Order {order.id}</td>
+                        <td>{order.patient_name}</td>
+                        <td>{orderDateLabel(order.created_at)}</td>
+                        <td>
+                          <StatusPill status="pending_payment" />
+                        </td>
+                        <td>
+                          <div className="btn-row">
+                            <button
+                              type="button"
+                              className="danger-quiet"
+                              disabled={cancellingThis}
+                              onClick={() => void cancelOrder(order)}
+                            >
+                              Cancel order
+                            </button>
+                            {cancellingThis ? <p className="btn-hint">Cancelling this order</p> : null}
+                          </div>
+                        </td>
+                      </tr>
+                      {cancelError?.id === order.id ? (
+                        <tr>
+                          <td colSpan={5}>
+                            <InlineError message={cancelError.message} />
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="section">
+        <h2>Units sold</h2>
+        {dashboard.units_sold.length === 0 ? <p className="muted">No units sold.</p> : null}
+        {dashboard.units_sold.length > 0 ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th className="num">Units</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dashboard.units_sold.map((unit) => (
+                  <tr key={unit.product_id}>
+                    <td>{unit.product_name}</td>
+                    <td className="num">{unit.qty}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }

@@ -1,5 +1,3 @@
-import { useLayoutEffect, useRef, useState } from "react";
-
 import { splitBarLayout, type SplitBarAmounts } from "./splitBar.ts";
 
 type SplitBarProps = SplitBarAmounts & {
@@ -17,31 +15,11 @@ export function SplitBar({
   compact = false,
   subtotalCaption = "Patient pays",
 }: SplitBarProps) {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const [barWidthPx, setBarWidthPx] = useState(0);
-
-  useLayoutEffect(() => {
-    const node = trackRef.current;
-    if (node === null) {
-      return;
-    }
-    const sync = () => {
-      setBarWidthPx(node.getBoundingClientRect().width);
-    };
-    sync();
-    const observer = new ResizeObserver(sync);
-    observer.observe(node);
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-
   const layout = splitBarLayout({
     subtotalCents,
     cogsCents,
     feeCents,
     payoutCents,
-    barWidthPx,
   });
 
   return (
@@ -52,24 +30,27 @@ export function SplitBar({
         </p>
       ) : null}
       <div
-        ref={trackRef}
         className="split-bar__track"
         role="img"
         aria-label={`COGS ${layout.cogsLabel}, fee ${layout.feeLabel}, you receive ${layout.payoutLabel}`}
       >
         <span
           className="split-bar__seg split-bar__seg--cogs"
-          style={{ width: `${layout.cogsWidthPx}px` }}
+          style={{ width: `${layout.cogsPercent}%` }}
           title={compact ? undefined : `COGS ${layout.cogsLabel}`}
         />
         <span
-          className="split-bar__seg split-bar__seg--fee"
-          style={{ width: `${layout.feeWidthPx}px` }}
+          className={
+            layout.feePercent === 0
+              ? "split-bar__seg split-bar__seg--fee split-bar__seg--empty"
+              : "split-bar__seg split-bar__seg--fee"
+          }
+          style={{ width: `${layout.feePercent}%` }}
           title={compact ? undefined : `Fee ${layout.feeLabel}`}
         />
         <span
           className="split-bar__seg split-bar__seg--payout"
-          style={{ width: `${layout.payoutWidthPx}px` }}
+          style={{ width: `${layout.payoutPercent}%` }}
           title={compact ? undefined : `You receive ${layout.payoutLabel}`}
         />
       </div>

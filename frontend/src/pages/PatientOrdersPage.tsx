@@ -44,19 +44,34 @@ export function PatientOrdersPage({ userId }: { userId: number }) {
     <div className="page">
       <h1>My orders</h1>
       {orders.length === 0 ? <EmptyState>No orders yet.</EmptyState> : null}
-      {orders.map((order) => (
-        <article key={order.id}>
-          <header>
-            <Link to={`/orders/${order.id}`}>Order {order.id}</Link>
-          </header>
-          <p>
-            <StatusPill status={order.status} />
-          </p>
-          <p>
-            Total <Money cents={order.subtotal_cents} />
-          </p>
-        </article>
-      ))}
+      {orders.length > 0 ? (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Status</th>
+                <th className="num">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((order) => (
+                <tr key={order.id}>
+                  <td>
+                    <Link to={`/orders/${order.id}`}>Order {order.id}</Link>
+                  </td>
+                  <td>
+                    <StatusPill status={order.status} />
+                  </td>
+                  <td className="num">
+                    <Money cents={order.subtotal_cents} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   );
 }

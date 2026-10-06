@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { apiGet, apiSend, errorText } from "../api/client.ts";
 import type { components } from "../api/schema.ts";
+import { InlineError } from "../components/InlineError.tsx";
+import { Money } from "../components/Money.tsx";
 import { formatCents, parseDollarsToCents } from "../lib/money.ts";
 
 type AdminProduct = components["schemas"]["AdminProductResponse"];
@@ -50,7 +52,7 @@ export function AdminProductsPage({ userId }: { userId: number }) {
   }
 
   if (loadError !== null) {
-    return <p role="alert">{loadError}</p>;
+    return <InlineError message={loadError} />;
   }
   if (products === null) {
     return <p>Loading products…</p>;
@@ -59,14 +61,34 @@ export function AdminProductsPage({ userId }: { userId: number }) {
   return (
     <div className="page">
       <h1>Stock &amp; COGS</h1>
-      {products.map((product) => (
-        <AdminProductRow
-          key={product.id}
-          product={product}
-          userId={userId}
-          onUpdated={replaceProduct}
-        />
-      ))}
+      {products.length === 0 ? <p className="muted">No products to edit.</p> : null}
+      {products.length > 0 ? (
+        <div className="table-wrap">
+          <table className="dense">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th className="num">Suggested price</th>
+                <th>Stock</th>
+                <th>COGS</th>
+                <th>
+                  <span className="visually-hidden">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((product) => (
+                <AdminProductRow
+                  key={product.id}
+                  product={product}
+                  userId={userId}
+                  onUpdated={replaceProduct}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -125,39 +147,63 @@ function AdminProductRow({
     }
   }
 
+  const unsaved = stock !== String(product.stock_qty) || cogs !== formatCents(product.unit_cogs_cents);
+
   return (
-    <article>
-      <header>
-        <strong>{product.name}</strong>
-      </header>
-      <p>{product.sku}</p>
-      <p>Suggested price {formatCents(product.suggested_price_cents)}</p>
-      <label>
-        Stock
-        <input
-          value={stock}
-          inputMode="numeric"
-          onChange={(event) => {
-            setStock(event.target.value);
-            setError(null);
-          }}
-        />
-      </label>
-      <label>
-        COGS
-        <input
-          value={cogs}
-          inputMode="decimal"
-          onChange={(event) => {
-            setCogs(event.target.value);
-            setError(null);
-          }}
-        />
-      </label>
-      <button type="button" disabled={busy} onClick={() => void save()}>
-        Save
-      </button>
-      {error !== null ? <p role="alert">{error}</p> : null}
-    </article>
+    <>
+      <tr>
+        <td>
+          <div className="cell-title">{product.name}</div>
+          <div className="muted">{product.sku}</div>
+        </td>
+        <td className="num">
+          <Money cents={product.suggested_price_cents} />
+        </td>
+        <td>
+          <input
+            className="input-qty"
+            aria-label={`Stock for ${product.name}`}
+            value={stock}
+            inputMode="numeric"
+            onChange={(event) => {
+              setStock(event.target.value);
+              setError(null);
+            }}
+          />
+        </td>
+        <td>
+          <input
+            className="input-money"
+            aria-label={`COGS for ${product.name}`}
+            value={cogs}
+            inputMode="decimal"
+            onChange={(event) => {
+              setCogs(event.target.value);
+              setError(null);
+            }}
+          />
+        </td>
+        <td>
+          <div className="btn-row">
+            <button
+              type="button"
+              className={unsaved ? undefined : "secondary"}
+              disabled={busy}
+              onClick={() => void save()}
+            >
+              Save
+            </button>
+            {busy ? <p className="btn-hint">Saving</p> : null}
+          </div>
+        </td>
+      </tr>
+      {error !== null ? (
+        <tr>
+          <td colSpan={5}>
+            <InlineError message={error} />
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }

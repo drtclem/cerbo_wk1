@@ -1,18 +1,18 @@
 /**
  * Contract for `splitBarLayout` (pure helper used by SplitBar):
- * - Proportions are cogs/subtotal, fee/subtotal, payout/subtotal from API cents.
- * - Labels are formatCents of those same cents (never derived from bar widths).
- * - Given barWidthPx, segment pixel widths sum to barWidthPx.
- * - When feeCents > 0, the fee segment is never under FEE_MIN_PX (3). When the
- *   fee fraction would paint thinner than that, fee gets FEE_MIN_PX and the
- *   leftover width is split between COGS and payout in their relative share of
- *   (cogs+payout). When feeCents is 0, fee width is 0 (no phantom bar).
- * - Zero subtotal → all widths 0; labels still format the props.
+ * - Widths are percentages: cogs/subtotal, fee/subtotal, payout/subtotal.
+ * - Those three percentages sum to 100 whenever the subtotal is positive,
+ *   so the bar fills its track at every width. No pixel measurement.
+ * - Labels are formatCents of those same cents (never derived from widths).
+ * - A non-zero fee's minimum visible width is CSS min-width: 3px, not a
+ *   change to the percentage. When feeCents is 0, the fee percentage is 0.
+ * - Zero subtotal → all percentages 0; labels still format the props.
  */
+import { readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 
 import { formatCents } from "../lib/money";
-import { FEE_MIN_PX, splitBarLayout } from "./splitBar";
+import { splitBarLayout } from "./splitBar";
 
 const DEMO = {
   subtotalCents: 6_600,
@@ -21,40 +21,35 @@ const DEMO = {
   payoutCents: 3_250,
 } as const;
 
-test("splitBarLayout widths match cogs/subtotal, fee/subtotal, and payout/subtotal", () => {
-  const barWidthPx = 400;
-  const layout = splitBarLayout({ ...DEMO, barWidthPx });
-  expect(layout.cogsWidthPx).toBeCloseTo((3_300 / 6_600) * barWidthPx, 5);
-  expect(layout.feeWidthPx).toBeCloseTo((50 / 6_600) * barWidthPx, 5);
-  expect(layout.payoutWidthPx).toBeCloseTo((3_250 / 6_600) * barWidthPx, 5);
-  expect(layout.cogsWidthPx + layout.feeWidthPx + layout.payoutWidthPx).toBeCloseTo(
-    barWidthPx,
-    5,
-  );
+test("splitBarLayout widths are percentages of subtotal and fill the track", () => {
+  const layout = splitBarLayout(DEMO);
+  expect(layout.cogsPercent).toBeCloseTo((3_300 / 6_600) * 100, 5);
+  expect(layout.feePercent).toBeCloseTo((50 / 6_600) * 100, 5);
+  expect(layout.payoutPercent).toBeCloseTo((3_250 / 6_600) * 100, 5);
+  expect(layout.cogsPercent + layout.feePercent + layout.payoutPercent).toBe(100);
 });
 
-test("splitBarLayout fee segment is never under the minimum visible width", () => {
-  expect(FEE_MIN_PX).toBe(3);
-  // Tiny fee fraction of a wide bar would be ~0.15px without the floor.
-  const barWidthPx = 1_000;
+test("splitBarLayout keeps a tiny fee at its true percentage", () => {
   const layout = splitBarLayout({
     subtotalCents: 10_000,
     cogsCents: 4_999,
     feeCents: 1,
     payoutCents: 5_000,
-    barWidthPx,
   });
-  expect(layout.feeWidthPx).toBe(FEE_MIN_PX);
-  expect(layout.cogsWidthPx + layout.feeWidthPx + layout.payoutWidthPx).toBe(barWidthPx);
-  expect(layout.cogsWidthPx).toBeGreaterThan(0);
-  expect(layout.payoutWidthPx).toBeGreaterThan(0);
-  const remaining = barWidthPx - FEE_MIN_PX;
-  expect(layout.cogsWidthPx).toBeCloseTo(remaining * (4_999 / 9_999), 5);
-  expect(layout.payoutWidthPx).toBeCloseTo(remaining * (5_000 / 9_999), 5);
+  expect(layout.feePercent).toBeCloseTo((1 / 10_000) * 100, 5);
+  expect(layout.feePercent).toBeLessThan(1);
+  expect(layout.cogsPercent + layout.feePercent + layout.payoutPercent).toBe(100);
+  expect(layout.cogsPercent).toBeGreaterThan(0);
+  expect(layout.payoutPercent).toBeGreaterThan(0);
+});
+
+test("a non-zero fee segment has a 3px CSS minimum width", () => {
+  const css = readFileSync(new URL("../theme.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.split-bar__seg--fee\s*\{[^}]*min-width:\s*3px;/);
 });
 
 test("splitBarLayout labels print formatCents of the props unchanged", () => {
-  const layout = splitBarLayout({ ...DEMO, barWidthPx: 400 });
+  const layout = splitBarLayout(DEMO);
   expect(layout.cogsLabel).toBe(formatCents(DEMO.cogsCents));
   expect(layout.feeLabel).toBe(formatCents(DEMO.feeCents));
   expect(layout.payoutLabel).toBe(formatCents(DEMO.payoutCents));
@@ -66,22 +61,17 @@ test("splitBarLayout labels print formatCents of the props unchanged", () => {
 });
 
 test("splitBarLayout with zero fee paints no fee segment and keeps proportions", () => {
-  const barWidthPx = 200;
   const layout = splitBarLayout({
     subtotalCents: 66,
     cogsCents: 30,
     feeCents: 0,
     payoutCents: 36,
-    barWidthPx,
   });
-  expect(layout.feeWidthPx).toBe(0);
+  expect(layout.feePercent).toBe(0);
   expect(layout.feeLabel).toBe(formatCents(0));
-  expect(layout.cogsWidthPx).toBeCloseTo((30 / 66) * barWidthPx, 5);
-  expect(layout.payoutWidthPx).toBeCloseTo((36 / 66) * barWidthPx, 5);
-  expect(layout.cogsWidthPx + layout.feeWidthPx + layout.payoutWidthPx).toBeCloseTo(
-    barWidthPx,
-    5,
-  );
+  expect(layout.cogsPercent).toBeCloseTo((30 / 66) * 100, 5);
+  expect(layout.payoutPercent).toBeCloseTo((36 / 66) * 100, 5);
+  expect(layout.cogsPercent + layout.feePercent + layout.payoutPercent).toBe(100);
 });
 
 test("splitBarLayout with zero subtotal returns zero widths and still formats labels", () => {
@@ -90,11 +80,10 @@ test("splitBarLayout with zero subtotal returns zero widths and still formats la
     cogsCents: 0,
     feeCents: 0,
     payoutCents: 0,
-    barWidthPx: 400,
   });
-  expect(layout.cogsWidthPx).toBe(0);
-  expect(layout.feeWidthPx).toBe(0);
-  expect(layout.payoutWidthPx).toBe(0);
+  expect(layout.cogsPercent).toBe(0);
+  expect(layout.feePercent).toBe(0);
+  expect(layout.payoutPercent).toBe(0);
   expect(layout.cogsLabel).toBe(formatCents(0));
   expect(layout.feeLabel).toBe(formatCents(0));
   expect(layout.payoutLabel).toBe(formatCents(0));

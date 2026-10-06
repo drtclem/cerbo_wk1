@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ApiError, apiGet, apiSend, errorText } from "../api/client.ts";
 import type { components } from "../api/schema.ts";
+import { InlineError } from "../components/InlineError.tsx";
+import { Money } from "../components/Money.tsx";
 import type { User } from "../components/RoleSwitcher.tsx";
 import { SplitBar } from "../components/SplitBar.tsx";
 import { formatCents, parseDollarsToCents } from "../lib/money.ts";
@@ -30,6 +32,11 @@ type PreviewProblem = {
 };
 
 type Step = "build" | "review" | "created";
+
+type SplitFigures = Pick<
+  PreviewResponse,
+  "subtotal_cents" | "cogs_total_cents" | "platform_fee_cents" | "provider_payout_cents"
+>;
 
 const PREVIEW_DELAY_MS = 300;
 const QTY_PATTERN = /^[1-9]\d*$/;
@@ -84,24 +91,81 @@ function productById(
   return products.find((product) => product.product_id === productId);
 }
 
-function SplitBreakdown({
+function SplitFigures({
   split,
   subtotalLabel,
 }: {
-  split: Pick<
-    PreviewResponse,
-    "subtotal_cents" | "cogs_total_cents" | "platform_fee_cents" | "provider_payout_cents"
-  >;
+  split: SplitFigures;
   subtotalLabel: string;
 }) {
   return (
-    <SplitBar
-      subtotalCents={split.subtotal_cents}
-      cogsCents={split.cogs_total_cents}
-      feeCents={split.platform_fee_cents}
-      payoutCents={split.provider_payout_cents}
-      subtotalCaption={subtotalLabel}
-    />
+    <dl className="figures">
+      <div>
+        <dt>{subtotalLabel}</dt>
+        <dd>
+          <Money cents={split.subtotal_cents} />
+        </dd>
+      </div>
+      <div>
+        <dt>
+          <span className="swatch swatch--cogs" aria-hidden="true" />
+          COGS
+        </dt>
+        <dd>
+          <Money cents={split.cogs_total_cents} />
+        </dd>
+      </div>
+      <div>
+        <dt>
+          <span className="swatch swatch--fee" aria-hidden="true" />
+          Platform fee
+        </dt>
+        <dd>
+          <Money cents={split.platform_fee_cents} />
+        </dd>
+      </div>
+      <div>
+        <dt>
+          <span className="swatch swatch--payout" aria-hidden="true" />
+          You receive
+        </dt>
+        <dd>
+          <Money cents={split.provider_payout_cents} emphasize />
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function OrderSummary({
+  split,
+  subtotalLabel,
+  children,
+}: {
+  split: SplitFigures | null;
+  subtotalLabel: string;
+  children: ReactNode;
+}) {
+  return (
+    <aside className="summary panel panel--sticky">
+      {split !== null ? (
+        <>
+          <div className="summary__bar">
+            <SplitBar
+              subtotalCents={split.subtotal_cents}
+              cogsCents={split.cogs_total_cents}
+              feeCents={split.platform_fee_cents}
+              payoutCents={split.provider_payout_cents}
+              subtotalCaption={subtotalLabel}
+            />
+          </div>
+          <SplitFigures split={split} subtotalLabel={subtotalLabel} />
+        </>
+      ) : (
+        <p className="muted">The split appears when every line is valid.</p>
+      )}
+      {children}
+    </aside>
   );
 }
 
@@ -182,7 +246,7 @@ export function NewOrderPage({ userId }: { userId: number }) {
   }, [lines, userId]);
 
   if (loadError !== null) {
-    return <p role="alert">{loadError}</p>;
+    return <InlineError message={loadError} />;
   }
   if (users === null || products === null) {
     return <p>Loading order…</p>;
@@ -275,46 +339,80 @@ export function NewOrderPage({ userId }: { userId: number }) {
 
   if (step === "review") {
     const reviewError = previewProblem?.message ?? createError;
+    let confirmReason: string | null = null;
+    if (busy) {
+      confirmReason = "Creating the order";
+    } else if (patientId === null) {
+      confirmReason = "Pick a patient";
+    } else if (previewProblem !== null) {
+      confirmReason = "Fix the errors above";
+    } else if (shownPreview === null) {
+      confirmReason = "Checking prices";
+    }
     return (
-      <div className="page">
-        <h1>Review order</h1>
-        {patient !== null ? <p>Patient {patient.name}</p> : null}
-        {shownPreview !== null
-          ? shownPreview.lines.map((line, index) => (
-              <ReviewLine
-                key={`${line.product_id}-${index}`}
-                line={line}
-                productName={productById(products, line.product_id)?.name ?? "Product"}
-              />
-            ))
-          : null}
-        {shownPreview !== null ? (
-          <SplitBreakdown split={shownPreview} subtotalLabel="Patient pays" />
-        ) : null}
-        <p>Later catalog changes don&apos;t affect this order.</p>
-        {shownPreview === null && previewProblem === null ? <p>Checking prices</p> : null}
-        {reviewError !== null ? <p role="alert">{reviewError}</p> : null}
-        <button
-          type="button"
-          className="secondary"
-          disabled={busy}
-          onClick={() => {
-            if (confirming.current) {
-              return;
-            }
-            setCreateError(null);
-            setStep("build");
-          }}
-        >
-          Back
-        </button>
-        <button
-          type="button"
-          disabled={busy || shownPreview === null || patientId === null || previewProblem !== null}
-          onClick={() => void confirmOrder()}
-        >
-          Confirm
-        </button>
+      <div className="builder">
+        <div className="builder__main">
+          <h1>Review order</h1>
+          {patient !== null ? (
+            <dl className="meta-pair">
+              <dt>Patient</dt>
+              <dd>{patient.name}</dd>
+            </dl>
+          ) : null}
+          {shownPreview !== null ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th className="num">Qty</th>
+                    <th className="num">Unit price</th>
+                    <th className="num">Line total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shownPreview.lines.map((line, index) => (
+                    <ReviewLine
+                      key={`${line.product_id}-${index}`}
+                      line={line}
+                      productName={productById(products, line.product_id)?.name ?? "Product"}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+        <OrderSummary split={shownPreview} subtotalLabel="Patient pays">
+          <p className="muted">Later catalog changes don&apos;t affect this order.</p>
+          {reviewError !== null ? <InlineError message={reviewError} /> : null}
+          <div className="btn-row">
+            <button
+              type="button"
+              disabled={busy || shownPreview === null || patientId === null || previewProblem !== null}
+              onClick={() => void confirmOrder()}
+            >
+              Confirm order
+            </button>
+            {confirmReason !== null ? <p className="btn-hint">{confirmReason}</p> : null}
+          </div>
+          <div className="btn-row">
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => {
+                if (confirming.current) {
+                  return;
+                }
+                setCreateError(null);
+                setStep("build");
+              }}
+            >
+              Back
+            </button>
+          </div>
+        </OrderSummary>
       </div>
     );
   }
@@ -323,133 +421,217 @@ export function NewOrderPage({ userId }: { userId: number }) {
     previewProblem !== null && previewProblem.lineIndex === null ? previewProblem.message : null;
 
   return (
-    <div className="page">
-      <h1>New order</h1>
-      <label>
-        Patient
-        <select
-          value={patientId === null ? "" : String(patientId)}
-          onChange={(event) => {
-            const value = event.target.value;
-            setPatientId(value === "" ? null : Number(value));
-          }}
-        >
-          <option value="">Select a patient</option>
-          {patients.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Product
-        <select
-          value={selectedAddId}
-          onChange={(event) => {
-            setAddProductId(event.target.value);
-          }}
-        >
-          {enabled.map((product) => (
-            <option key={product.product_id} value={product.product_id}>
-              {product.name} ({stockLabel(product.stock_qty)})
-            </option>
-          ))}
-        </select>
-      </label>
-      <button type="button" disabled={selectedAddId === ""} onClick={addLine}>
-        Add
-      </button>
-      {enabled.length === 0 ? <p>No enabled products.</p> : null}
-      {lines.map((line, index) => {
-        const product = productById(products, line.productId);
-        const localError = lineError(line);
-        const remoteError =
-          previewProblem?.lineIndex === index ? previewProblem.message : null;
-        const message = localError ?? remoteError;
-        const priced = shownPreview?.lines[index];
-        return (
-          <article key={line.key}>
-            <header>
-              <strong>{product?.name ?? "Product"}</strong>
-            </header>
-            {product !== undefined ? <p>{stockLabel(product.stock_qty)}</p> : null}
-            <label>
-              Qty
-              <input
-                value={line.qty}
-                inputMode="numeric"
-                onChange={(event) => {
-                  const qty = event.target.value;
-                  editLines(lines.map((item) => (item.key === line.key ? { ...item, qty } : item)));
-                }}
-              />
-            </label>
-            <label>
-              Unit price
-              <input
-                value={line.price}
-                inputMode="decimal"
-                onChange={(event) => {
-                  const price = event.target.value;
-                  editLines(
-                    lines.map((item) => (item.key === line.key ? { ...item, price } : item)),
-                  );
-                }}
-              />
-            </label>
-            {priced !== undefined ? <LineAmounts line={priced} /> : null}
-            {message !== null ? <p role="alert">{message}</p> : null}
+    <div className="builder">
+      <div className="builder__main">
+        <h1>New order</h1>
+        <div className="builder__controls">
+          <label>
+            Patient
+            <select
+              value={patientId === null ? "" : String(patientId)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setPatientId(value === "" ? null : Number(value));
+              }}
+            >
+              <option value="">Select a patient</option>
+              {patients.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Product
+            <select
+              value={selectedAddId}
+              onChange={(event) => {
+                setAddProductId(event.target.value);
+              }}
+            >
+              {enabled.map((product) => (
+                <option key={product.product_id} value={product.product_id}>
+                  {product.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="btn-row">
             <button
               type="button"
               className="secondary"
-              onClick={() => {
-                editLines(lines.filter((item) => item.key !== line.key));
-              }}
+              disabled={selectedAddId === ""}
+              onClick={addLine}
             >
-              Remove
+              Add
             </button>
-          </article>
-        );
-      })}
-      {shownPreview !== null ? (
-        <SplitBreakdown split={shownPreview} subtotalLabel="Subtotal" />
-      ) : null}
-      {orderProblem !== null ? <p role="alert">{orderProblem}</p> : null}
-      <button
-        type="button"
-        disabled={!canContinue}
-        onClick={() => {
-          setCreateError(null);
-          setStep("review");
-        }}
-      >
-        Continue
-      </button>
-      {continueReason !== null ? <p>{continueReason}</p> : null}
+            {enabled.length === 0 ? <p className="btn-hint">No enabled products.</p> : null}
+          </div>
+        </div>
+        {lines.length > 0 ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th className="nowrap">Stock</th>
+                  <th className="num">Qty</th>
+                  <th className="num">Unit price</th>
+                  <th className="num nowrap">Line total</th>
+                  <th>
+                    <span className="visually-hidden">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((line, index) => {
+                  const product = productById(products, line.productId);
+                  const localError = lineError(line);
+                  const remoteError =
+                    previewProblem?.lineIndex === index ? previewProblem.message : null;
+                  const message = localError ?? remoteError;
+                  const priced = shownPreview?.lines[index];
+                  const name = product?.name ?? "Product";
+                  return (
+                    <DraftRow
+                      key={line.key}
+                      name={name}
+                      stock={product !== undefined ? stockLabel(product.stock_qty) : null}
+                      outOfStock={product?.stock_qty === 0}
+                      qty={line.qty}
+                      price={line.price}
+                      lineTotalCents={priced?.line_total_cents}
+                      message={message}
+                      onQty={(qty) => {
+                        editLines(
+                          lines.map((item) => (item.key === line.key ? { ...item, qty } : item)),
+                        );
+                      }}
+                      onPrice={(price) => {
+                        editLines(
+                          lines.map((item) => (item.key === line.key ? { ...item, price } : item)),
+                        );
+                      }}
+                      onRemove={() => {
+                        editLines(lines.filter((item) => item.key !== line.key));
+                      }}
+                    />
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
+      <OrderSummary split={shownPreview} subtotalLabel="Subtotal">
+        {orderProblem !== null ? <InlineError message={orderProblem} /> : null}
+        <div className="btn-row">
+          <button
+            type="button"
+            disabled={!canContinue}
+            onClick={() => {
+              setCreateError(null);
+              setStep("review");
+            }}
+          >
+            Continue
+          </button>
+          {continueReason !== null ? <p className="btn-hint">{continueReason}</p> : null}
+        </div>
+      </OrderSummary>
     </div>
   );
 }
 
-function LineAmounts({ line }: { line: PreviewLine }) {
+function DraftRow({
+  name,
+  stock,
+  outOfStock,
+  qty,
+  price,
+  lineTotalCents,
+  message,
+  onQty,
+  onPrice,
+  onRemove,
+}: {
+  name: string;
+  stock: string | null;
+  outOfStock: boolean;
+  qty: string;
+  price: string;
+  lineTotalCents: number | undefined;
+  message: string | null;
+  onQty: (qty: string) => void;
+  onPrice: (price: string) => void;
+  onRemove: () => void;
+}) {
   return (
-    <p>
-      Line total {formatCents(line.line_total_cents)}, COGS {formatCents(line.line_cogs_cents)},
-      margin {formatCents(line.line_margin_cents)}
-    </p>
+    <>
+      <tr>
+        <td className="cell-title">{name}</td>
+        <td className="nowrap">
+          {stock !== null ? (
+            <span className={outOfStock ? "stock stock--out" : "stock"}>{stock}</span>
+          ) : (
+            "—"
+          )}
+        </td>
+        <td className="num">
+          <input
+            className="input-qty"
+            aria-label={`Quantity for ${name}`}
+            value={qty}
+            inputMode="numeric"
+            onChange={(event) => {
+              onQty(event.target.value);
+            }}
+          />
+        </td>
+        <td className="num">
+          <input
+            className="input-money"
+            aria-label={`Unit price for ${name}`}
+            value={price}
+            inputMode="decimal"
+            onChange={(event) => {
+              onPrice(event.target.value);
+            }}
+          />
+        </td>
+        <td className="num nowrap">
+          {lineTotalCents !== undefined ? <Money cents={lineTotalCents} /> : "—"}
+        </td>
+        <td>
+          <button type="button" className="secondary" onClick={onRemove}>
+            Remove
+          </button>
+        </td>
+      </tr>
+      {message !== null ? (
+        <tr>
+          <td colSpan={6}>
+            <InlineError message={message} />
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }
 
 function ReviewLine({ line, productName }: { line: PreviewLine; productName: string }) {
   return (
-    <article>
-      <header>
-        <strong>{productName}</strong>
-      </header>
-      <p>Qty {line.qty}</p>
-      <p>Unit price {formatCents(line.unit_price_cents)}</p>
-      <LineAmounts line={line} />
-    </article>
+    <tr>
+      <td className="cell-title">{productName}</td>
+      <td className="num">{line.qty}</td>
+      <td className="num">
+        <Money cents={line.unit_price_cents} />
+      </td>
+      <td className="num">
+        <Money cents={line.line_total_cents} />
+      </td>
+    </tr>
   );
 }
 
@@ -469,15 +651,41 @@ function CreatedOrder({ order, patientName }: { order: OrderResponse; patientNam
   }
 
   return (
-    <div className="page">
+    <div className="created">
       <h1>Order created</h1>
       <p>Patient {patientName}</p>
-      <p>Patient link {order.patient_link}</p>
-      <button type="button" onClick={() => void copyLink()}>
-        Copy
-      </button>
-      {copied ? <p>Copied</p> : null}
-      {copyError !== null ? <p role="alert">{copyError}</p> : null}
+      <aside className="summary panel">
+        <div className="summary__bar">
+          <SplitBar
+            subtotalCents={order.subtotal_cents}
+            cogsCents={order.cogs_total_cents}
+            feeCents={order.platform_fee_cents}
+            payoutCents={order.provider_payout_cents}
+            subtotalCaption="Patient pays"
+          />
+        </div>
+        <SplitFigures split={order} subtotalLabel="Patient pays" />
+        <div className="stack">
+          <span className="field-label" id="patient-link-label">
+            Patient link
+          </span>
+          <div className="copy-field">
+            <input
+              aria-labelledby="patient-link-label"
+              readOnly
+              value={order.patient_link}
+              onFocus={(event) => {
+                event.target.select();
+              }}
+            />
+            <button type="button" onClick={() => void copyLink()}>
+              Copy
+            </button>
+          </div>
+          {copied ? <p className="muted">Copied</p> : null}
+          {copyError !== null ? <InlineError message={copyError} /> : null}
+        </div>
+      </aside>
     </div>
   );
 }

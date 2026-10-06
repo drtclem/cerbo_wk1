@@ -162,8 +162,8 @@ export default function App() {
           <Route
             path="/orders/:orderId"
             element={
-              me !== null ? (
-                <PatientOrderRoute key={me.id} userId={me.id} role={me.role} />
+              me !== null && users !== null ? (
+                <PatientOrderRoute key={me.id} userId={me.id} role={me.role} users={users} />
               ) : (
                 <p>Loading account…</p>
               )

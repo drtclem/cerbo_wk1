@@ -3,7 +3,9 @@ import { useParams } from "react-router";
 
 import { apiGet, apiSend, errorText } from "../api/client.ts";
 import type { components } from "../api/schema.ts";
+import { InlineError } from "../components/InlineError.tsx";
 import { Money } from "../components/Money.tsx";
+import type { User } from "../components/RoleSwitcher.tsx";
 import { StatusPill } from "../components/StatusPill.tsx";
 
 type OrderResponse = components["schemas"]["OrderResponse"];
@@ -37,12 +39,28 @@ function orderDateLabel(createdAt: string): string {
   return `${month} ${day}`;
 }
 
-export function PatientOrderRoute({ userId, role }: { userId: number; role: string }) {
+export function PatientOrderRoute({
+  userId,
+  role,
+  users,
+}: {
+  userId: number;
+  role: string;
+  users: User[];
+}) {
   const { orderId } = useParams();
-  return <PatientOrderPage key={orderId} userId={userId} role={role} />;
+  return <PatientOrderPage key={orderId} userId={userId} role={role} users={users} />;
 }
 
-function PatientOrderPage({ userId, role }: { userId: number; role: string }) {
+function PatientOrderPage({
+  userId,
+  role,
+  users,
+}: {
+  userId: number;
+  role: string;
+  users: User[];
+}) {
   const { orderId } = useParams();
   const [order, setOrder] = useState<OrderResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -74,10 +92,10 @@ function PatientOrderPage({ userId, role }: { userId: number; role: string }) {
   }, [orderId, userId]);
 
   if (orderId === undefined || !/^\d+$/.test(orderId)) {
-    return <p role="alert">Not found</p>;
+    return <InlineError message="Not found" />;
   }
   if (loadError !== null) {
-    return <p role="alert">{loadError}</p>;
+    return <InlineError message={loadError} />;
   }
   if (order === null) {
     return <p>Loading order…</p>;
@@ -85,6 +103,7 @@ function PatientOrderPage({ userId, role }: { userId: number; role: string }) {
 
   const canPay = role === "patient" && order.status === "pending_payment";
   const title = order.status === "paid" ? "Receipt" : "Order";
+  const providerName = users.find((user) => user.id === order.provider_id)?.name ?? "your provider";
 
   async function pay() {
     if (paying.current || order === null || order.status !== "pending_payment") {
@@ -107,29 +126,42 @@ function PatientOrderPage({ userId, role }: { userId: number; role: string }) {
   }
 
   return (
-    <div className="page">
-      <h1>{title}</h1>
-      <p>
+    <article className="receipt">
+      <header className="receipt__header">
+        <h1>{title}</h1>
         <StatusPill status={order.status} />
+      </header>
+      <p className="receipt__from">From {providerName}</p>
+      <p className="muted">Prices set by your provider on {orderDateLabel(order.created_at)}</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th className="num">Qty</th>
+            <th className="num">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {order.lines.map((line, index) => (
+            <tr key={`${line.product_id}-${index}`}>
+              <td>
+                <div className="cell-title">{line.product_name}</div>
+                <div className="muted">
+                  <Money cents={line.unit_price_cents} /> each
+                </div>
+              </td>
+              <td className="num">{line.qty}</td>
+              <td className="num">
+                <Money cents={line.line_total_cents} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="receipt__total">
+        <span>Total</span>
+        <Money cents={order.subtotal_cents} />
       </p>
-      {order.lines.map((line, index) => (
-        <article key={`${line.product_id}-${index}`}>
-          <header>
-            <strong>{line.product_name}</strong>
-          </header>
-          <p>Qty {line.qty}</p>
-          <p>
-            Unit price <Money cents={line.unit_price_cents} />
-          </p>
-          <p>
-            Line total <Money cents={line.line_total_cents} />
-          </p>
-        </article>
-      ))}
-      <p>
-        Total <Money cents={order.subtotal_cents} />
-      </p>
-      <p>Prices set by your provider on {orderDateLabel(order.created_at)}</p>
       {canPay ? (
         <>
           <label>
@@ -147,12 +179,15 @@ function PatientOrderPage({ userId, role }: { userId: number; role: string }) {
               <option value="fake_card_decline">Decline test card</option>
             </select>
           </label>
-          <button type="button" disabled={busy} onClick={() => void pay()}>
-            Pay
-          </button>
+          <div className="btn-row">
+            <button type="button" disabled={busy} onClick={() => void pay()}>
+              Pay
+            </button>
+            {busy ? <p className="btn-hint">Taking payment</p> : null}
+          </div>
         </>
       ) : null}
-      {payError !== null ? <p role="alert">{payError}</p> : null}
-    </div>
+      {payError !== null ? <InlineError message={payError} /> : null}
+    </article>
   );
 }
