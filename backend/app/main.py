@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.api.admin import router as admin_router
 from app.api.catalog import router as catalog_router
 from app.api.orders import router as orders_router
 from app.api.reporting import router as reporting_router
@@ -92,6 +93,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     application.include_router(users_router)
     application.include_router(catalog_router)
+    application.include_router(admin_router)
     application.include_router(orders_router)
     application.include_router(reporting_router)
     return application

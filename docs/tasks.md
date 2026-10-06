@@ -106,9 +106,9 @@ Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `P
 ### T10. Admin stock and COGS
 `GET /admin/products`, `PUT /admin/products/{id}`.
 **Done when tests prove:**
-- [ ] Admin can set stock and COGS; non-admins → 403.
-- [ ] Stock −1 or COGS 0 → 422.
-- [ ] A COGS change doesn't affect existing orders (re-asserts AC2.5 through this endpoint).
+- [x] Admin can set stock and COGS; non-admins → 403.
+- [x] Stock −1 or COGS 0 → 422.
+- [x] A COGS change doesn't affect existing orders (re-asserts AC2.5 through this endpoint).
 
 ---
 
@@ -117,9 +117,9 @@ Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `P
 ### T11. Frontend foundation
 Generate API types from `/openapi.json` (`openapi-typescript`, npm script `gen:api`); small fetch client that adds `X-User-Id` and surfaces `error.code`/`message`; `RoleSwitcher`; routing shell; Pico + `theme.css` (architecture §9); `lib/money.ts`.
 **Done when:**
-- [ ] Vitest proves `parseDollarsToCents`: "19.99" → 1999, "20" → 2000, "0.5" → 50, "$1,234.56" → 123456; rejects "1.999", "-5", "abc", "". And `formatCents`: 1999 → "$19.99", 5 → "$0.05", 123456 → "$1,234.56".
-- [ ] No `* 100` or `parseFloat` in `lib/money.ts`.
-- [ ] Manual: switching roles changes `GET /me` and the visible nav.
+- [x] Vitest proves `parseDollarsToCents`: "19.99" → 1999, "20" → 2000, "0.5" → 50, "$1,234.56" → 123456; rejects "1.999", "-5", "abc", "". And `formatCents`: 1999 → "$19.99", 5 → "$0.05", 123456 → "$1,234.56".
+- [x] No `* 100` or `parseFloat` in `lib/money.ts`.
+- [x] Manual: switching roles changes `GET /me` and the visible nav.
 
 ### T12. Provider: product list page
 **Manual checklist:** toggle enabled; edit default price (typed as dollars) with an inline "you'd receive $X at qty 1" from the preview endpoint; a rejected price shows the error; stock shown as "N in stock" / "Out of stock".

@@ -1,0 +1,43 @@
+[data-theme="light"] {
+  color-scheme: light;
+  --pico-background-color: #fff;
+  --pico-font-family-sans-serif: Inter, system-ui, "Segoe UI", sans-serif;
+  --pico-font-family: var(--pico-font-family-sans-serif);
+  --pico-border-radius: 8px;
+  --pico-color: #101828;
+  --pico-muted-color: #667085;
+  --pico-muted-border-color: #eaecf0;
+  --pico-form-element-border-color: #eaecf0;
+  --pico-primary: #1570ef;
+  --pico-primary-background: #1570ef;
+  --pico-primary-border: #1570ef;
+  --pico-primary-underline: #1570ef;
+  --pico-primary-hover: #175cd3;
+  --pico-primary-hover-background: #175cd3;
+  --pico-primary-hover-border: #175cd3;
+  --pico-primary-hover-underline: #175cd3;
+  --pico-primary-focus: rgba(21, 112, 239, 0.25);
+  --cerbo-primary-tint: #eff8ff;
+  --cerbo-accent: #d70073;
+}
+
+.app-header {
+  background: var(--cerbo-primary-tint);
+  border-bottom: 1px solid #eaecf0;
+  margin-bottom: 1.5rem;
+  padding: 1rem 0;
+}
+
+.app-nav {
+  display: flex;
+  gap: 1rem;
+  margin: 0;
+}
+
+.app-nav a[aria-current="page"] {
+  font-weight: 600;
+}
+
+.you-receive {
+  color: var(--cerbo-accent);
+}

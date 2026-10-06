@@ -94,3 +94,21 @@ _Running notes for the "How you used AI" section of the writeup. Add an entry wh
 - **Result:** VERIFIED, reviewer clean. Dashboard headline totals (GMV, fees, earnings) are summed from the ledger; per-order rows and units come from stored order snapshots; cancelled orders excluded; provider sees only their own data. Audit returns lines, split, ledger rows, and `recomputed_fee_matches`. Both routes read-only.
 - **Claude review note:** the audit's only automated check was the fee formula (AC4.4). It didn't check that the ledger matches the stored split (AC4.3) or that the split adds up, which are the strongest "every cent accounted for" signals. Requested two extra flags, `ledger_matches_split` and `split_adds_up`, as a small follow-up.
 - **Follow-up done:** `split_adds_up` and `ledger_matches_split` added (VERIFIED, reviewer clean). A test that deliberately shifts a stored fee after payment shows `ledger_matches_split` flipping to false, so the check actually detects tampering rather than always returning true. Architecture, PRD AC4.4, and tasks updated (owner-approved) to describe the three flags.
+
+### 2026-10-06 · T10 admin stock & COGS · Cursor agent + verifier/reviewer
+- **Result:** VERIFIED, reviewer clean; backend complete (225 tests). Admin can set stock and/or COGS (omitted fields untouched); non-admins 403; COGS changes don't alter existing orders (re-proves AC2.5). Reuses existing `VALIDATION_ERROR` / `NOT_FOUND` codes.
+- **Two edge cases noted by Claude (documented, not fixed):**
+  - Raising COGS above a provider's saved default price leaves that default invalid. The order builder will pre-fill a price that's rejected with `LINE_BELOW_COGS` until the provider edits it. Safe (the guardrail catches it) but slightly awkward; a production version might flag affected providers or re-validate defaults when COGS changes.
+  - Admin stock edits set an absolute number. If a payment decrements stock at the same moment, the admin's value wins (a "lost update"). Acceptable for a manual restock screen; production would use stock adjustments (+N/−N) recorded as movements, like the ledger.
+
+### 2026-10-06 · T11 frontend foundation · Cursor agent + verifier/reviewer
+- **Result:** VERIFIED, reviewer clean. Role switcher, nav by role, generated API types, fetch client, and `lib/money.ts`. Agent also clicked through role switching in a real browser.
+- **Claude review of `money.ts`:** correct approach. Dollars→cents is pure string manipulation (split on ".", pad the fraction, concatenate digits), so no float ever touches a price. Better than the reviewer's string-scan test for `* 100`, which only catches one spelling of the bug.
+- **Edge case found by Claude:** commas are stripped *anywhere*, so a European-style "19,99" parses as $1,999.00 (100× the intended price). No guardrail catches it (it's above COGS, and there's no price ceiling). The review-and-confirm screen would show $1,999.00, but it's an easy typo to miss. Fix folded into T12: accept commas only as thousands separators in valid positions (`1,234.56` ok; `19,99` and `1,23` rejected).
+- **Tooling:** `openapi-typescript` 7 still declares a TypeScript 5 peer, so `frontend/.npmrc` sets `legacy-peer-deps=true` (same family of peer-dependency friction as T0).
+
+### 2026-10-06 · T12 provider product list page (+ comma fix) · Cursor agent + verifier/reviewer
+- **Result:** VERIFIED, reviewer clean. Product list with stock status, enable toggle, default-price edit with a live "you'd receive $X at qty 1" from the backend preview (no split math in the browser), and API errors shown inline.
+- **Comma fix from T11 review done:** commas accepted only as thousands separators; "19,99", "1,23", "1,2345" rejected, with Vitest cases.
+- **Agent clicked through it in a real browser** and cleaned up after itself (restored the seed catalog). Claude spot-checked its displayed number: $25.00 price on Magnesium (COGS $12.00) → fee 19¢ → payout $12.81, matching the screen exactly.
+- **Thoughtful UI detail from the agent:** the enable toggle saves the *last saved* price, not an unsaved draft in the text field, so toggling can't silently persist a half-typed price.
