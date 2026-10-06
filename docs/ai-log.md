@@ -133,3 +133,8 @@ _Running notes for the "How you used AI" section of the writeup. Add an entry wh
 - **Agent stayed inside the git guardrail:** told "do not create branches or run git commit/reset/push", it left everything uncommitted on `main`.
 - **Deferred, accepted:** a malformed date like `2026-02-31` would render as "Feb 31". Not reachable: the server generates `created_at` itself.
 - **Browser check:** the agent paid order 3 for Jane Doe after a decline and an out-of-stock attempt (stock temporarily set to 0 via admin, then restored to 50).
+
+### 2026-10-06 · T15 dashboard, audit view, admin page · Cursor agent + verifier/reviewer
+- **Result:** VERIFIED, reviewer clean. All screens read stored/ledger values from the API; none compute money. Audit view shows the three ✓ integrity checks. Admin page enforces whole-number stock ≥ 0 and COGS ≥ 1¢; non-admins see "Wrong role".
+- **Claude spot-check of the browser numbers:** order 3 ($24.00 Magnesium, COGS $12.00) → fee (2400×75+5000)//10000 = 18¢ → payout $11.82. Matches the dashboard exactly (GMV $24.00, fees $0.18, earnings $11.82). A COGS edit on the catalog left order 3's stored COGS at $12.00, re-proving the snapshot in the UI.
+- **Deferred, accepted (cosmetic):** overlapping Cancel clicks could let a slower dashboard refresh briefly re-show a just-cancelled order as pending; server state is always correct and a reload fixes the view. Stock/COGS fields stay editable during Save.

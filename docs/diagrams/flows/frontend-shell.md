@@ -1,4 +1,4 @@
-_Last updated: 2026-10-06 — T14: /patient/orders lists orders, and /orders/:orderId can pay._
+_Last updated: 2026-10-06 — T15: dashboard, audit, and admin products call the API._
 
 # Frontend shell
 
@@ -62,14 +62,16 @@ flowchart LR
   admin --> stock["/admin/products"]
   products --> productsPage["ProductsPage"]
   newOrder --> newOrderPage["NewOrderPage"]
-  dashboard --> placeholder["PlaceholderPage"]
+  dashboard --> dashboardPage["DashboardPage"]
   myOrders --> ordersPage["PatientOrdersPage"]
   ordersPage --> orderRoute["/orders/:orderId"]
   orderRoute --> orderPage["PatientOrderPage"]
-  stock --> placeholder
+  dashboardPage --> auditRoute["/orders/:orderId/audit"]
+  auditRoute --> auditPage["AuditPage"]
+  stock --> adminPage["AdminProductsPage"]
 ```
 
-The link labels are Products, New order, Dashboard, My orders, and Stock & COGS. `/products` renders `ProductsPage` with the signed-in user id. `/orders/new` is registered as a static route, before `/orders/:orderId`, and still renders `NewOrderPage` with that user id. `App` sets that route `key` to the user id, so a different signed-in user remounts the page. `/patient/orders` renders `PatientOrdersPage` with that user id, and its route `key` is the user id. `/orders/:orderId` renders `PatientOrderRoute` with that user id and role. `PatientOrderRoute` renders `PatientOrderPage` with `key` set to the order id. `/dashboard` and `/admin/products` still render `PlaceholderPage` with that title and the signed-in name and role. Those placeholder pages do not fetch. `/orders/:orderId/audit` is not registered, so that document URL has no page. The header still renders.
+The link labels are Products, New order, Dashboard, My orders, and Stock & COGS. `/products` renders `ProductsPage` with the signed-in user id. `/orders/new` is registered as a static route, before `/orders/:orderId`, and still renders `NewOrderPage` with that user id. `App` sets that route `key` to the user id, so a different signed-in user remounts the page. `/patient/orders` renders `PatientOrdersPage` with that user id, and its route `key` is the user id. `/orders/:orderId` renders `PatientOrderRoute` with that user id and role. `PatientOrderRoute` renders `PatientOrderPage` with `key` set to the order id. `/orders/new` and `/orders/:orderId` are unchanged. `/dashboard` renders `DashboardPage` with that user id, and its route `key` is the user id. `/orders/:orderId/audit` renders `AuditRoute` with that user id, and its route `key` is the user id. `AuditRoute` renders `AuditPage` with `key` set to the order id. `/admin/products` renders `AdminProductsPage` with that user id, and its route `key` is the user id. No route renders `PlaceholderPage`. The header still renders.
 
 ## Products
 
@@ -164,7 +166,7 @@ sequenceDiagram
   App-->>Browser: header and nav for the role
 ```
 
-The first page is `/products` for a provider, `/patient/orders` for a patient, and `/admin/products` for an admin. A role change whose current path is already in the new nav does not navigate. The redirect uses the role on the user already loaded from `GET /users`. `GET /me` then runs again because the selected id changed. A failed `GET /me` throws `ApiError` the same way as the first load. A new id remounts `NewOrderPage`, `PatientOrdersPage`, and `PatientOrderRoute` because each route `key` is that id. `PatientOrderPage` also remounts when the order id changes, because `PatientOrderRoute` sets its `key` to the order id.
+The first page is `/products` for a provider, `/patient/orders` for a patient, and `/admin/products` for an admin. A role change whose current path is already in the new nav does not navigate. The redirect uses the role on the user already loaded from `GET /users`. `GET /me` then runs again because the selected id changed. A failed `GET /me` throws `ApiError` the same way as the first load. A new id remounts `NewOrderPage`, `DashboardPage`, `PatientOrdersPage`, `PatientOrderRoute`, `AuditRoute`, and `AdminProductsPage` because each route `key` is that id. `PatientOrderPage` also remounts when the order id changes, because `PatientOrderRoute` sets its `key` to the order id. `AuditPage` remounts when the order id changes, because `AuditRoute` sets its `key` to the order id.
 
 ## New order
 
@@ -358,8 +360,174 @@ The date line is `Prices set by your provider on {Mon D}`. `orderDateLabel` read
 
 Pay is shown only when `role` is `patient` and `status` is `pending_payment`. The select sends `fake_card_ok` (OK test card, the default) or `fake_card_decline` (Decline test card). Pay POSTs `{payment_method}` to `/orders/{id}/pay`. The button is disabled while that request is in flight, and a ref blocks a second call before the state updates. A success replaces the order. A paid body renders Receipt, status Paid, and hides Pay. An error shows an alert and leaves the loaded order in place, so a declined `pending_payment` order can be paid again. A cancelled order, a non-patient, and any status other than `pending_payment` hide Pay.
 
+## Dashboard
+
+`DashboardPage` mounts with the signed-in user id. It calls `apiGet("/provider/dashboard", userId)`. The client fetches `/api/provider/dashboard` with `X-User-Id`. The proxy strips `/api`. Until the dashboard returns, the page shows "Loading dashboard…". A failure shows `errorText` from `src/api/client.ts` in an alert and no figures. That helper uses the API `message` for an `ApiError`.
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant Page as DashboardPage
+  participant Money as "money.ts"
+  participant Proxy as "Vite /api proxy"
+  participant API as "app.main"
+
+  Browser->>Page: open /dashboard
+  Page->>Proxy: GET /api/provider/dashboard
+  Note over Page,Proxy: X-User-Id is the signed-in id
+  Proxy->>API: GET /provider/dashboard
+  alt error envelope
+    API-->>Proxy: error JSON
+    Proxy-->>Page: error JSON
+    Page-->>Browser: alert
+  else dashboard JSON
+    API-->>Proxy: 200 dashboard JSON
+    Proxy-->>Page: dashboard JSON
+    Page->>Money: formatCents
+    Page-->>Browser: GMV, platform fees, and earnings
+    Note over Page: paid Audit link is audit_link
+    Page-->>Browser: units sold and pending orders
+    opt Cancel a pending order
+      Browser->>Page: Cancel
+      Note over Page: that Cancel stays disabled while the request is in flight
+      Page->>Proxy: POST /api/orders/id/cancel
+      Note over Page,Proxy: no body
+      Proxy->>API: POST /orders/id/cancel
+      alt error envelope
+        API-->>Proxy: error JSON
+        Proxy-->>Page: error JSON
+        Page-->>Browser: alert on that order
+      else order JSON
+        API-->>Proxy: 200 order JSON
+        Proxy-->>Page: order JSON
+        Note over Page: cancel response is not rendered
+        Page->>Proxy: GET /api/provider/dashboard
+        Proxy->>API: GET /provider/dashboard
+        alt refetch error
+          API-->>Proxy: error JSON
+          Proxy-->>Page: error JSON
+          Page-->>Browser: alert on that order, previous dashboard stays
+        else dashboard JSON
+          API-->>Proxy: 200 dashboard JSON
+          Proxy-->>Page: dashboard JSON
+          Page-->>Browser: refreshed dashboard
+        end
+      end
+    end
+  end
+```
+
+The heading is Dashboard. GMV, Platform fees, and Earnings are `formatCents` of `gmv_cents`, `platform_fee_cents`, and `earnings_cents`. The page does not compute a split.
+
+Paid orders use the heading Paid orders. An empty list says No paid orders. Otherwise a table shows Date, Patient, Subtotal, Fee, Payout, and Audit. Date is the UTC `YYYY-MM-DD` prefix of `paid_at`, shown as Mon D, or the stored value when that prefix does not match. Patient is `patient_name`. The money columns are `formatCents` of `subtotal_cents`, `platform_fee_cents`, and `provider_payout_cents`. The Audit link text is Audit and its path is `audit_link` from that row. The page does not build `/orders/{id}/audit`.
+
+Units sold uses the heading Units sold. An empty list says No units sold. Each row is `product_name` and `qty`.
+
+Pending orders uses the heading Pending orders. An empty list says No pending orders. Each order shows Order {id}, `patient_name`, and the same date label on `created_at`. Cancel POSTs `/orders/{id}/cancel` with no body. The button is disabled while that id is in flight, and a ref blocks a second call for that id before the state updates. The cancel response is not rendered. A success GETs `/provider/dashboard` again and replaces the page. A failed cancel, or a failed refetch, shows the error message on that order and leaves the loaded dashboard in place.
+
+## Audit
+
+`/orders/:orderId/audit` renders `AuditRoute`. That component reads `orderId` from the path and renders `AuditPage` with `key` set to that id. A missing id, or an id that is not all digits, shows Not found and does not call `GET /orders/{id}/audit`. Otherwise the page calls `apiGet("/orders/{orderId}/audit", userId)` through `/api` with `X-User-Id`. Until the audit returns, the page shows "Loading audit…". A failure shows `errorText` in an alert.
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant Route as AuditRoute
+  participant Page as AuditPage
+  participant Money as "money.ts"
+  participant Proxy as "Vite /api proxy"
+  participant API as "app.main"
+
+  Browser->>Route: open /orders/orderId/audit
+  Route->>Page: key is orderId
+  alt orderId is not all digits
+    Page-->>Browser: Not found
+  else digits
+    Page->>Proxy: GET /api/orders/id/audit
+    Note over Page,Proxy: X-User-Id is the signed-in id
+    Proxy->>API: GET /orders/id/audit
+    alt error envelope
+      API-->>Proxy: error JSON
+      Proxy-->>Page: error JSON
+      Page-->>Browser: alert
+    else audit JSON
+      API-->>Proxy: 200 audit JSON
+      Proxy-->>Page: lines, stored split, ledger, flags
+      Page->>Money: formatCents of stored cents
+      Note over Page: does not compute the split
+      Page-->>Browser: lines, split, ledger, and three integrity flags
+      Note over Page: You receive uses class you-receive
+    end
+  end
+```
+
+The heading is Audit. The page shows Order {id} and a status label: Pending payment, Paid, Cancelled, or the stored status. Each line shows `product_name`, qty, `formatCents(unit_price_cents)`, `formatCents(unit_cogs_cents)`, and `formatCents(line_total_cents)`.
+
+The split heading is Split. The page shows Subtotal, COGS, and Platform fee from `subtotal_cents`, `cogs_total_cents`, and `platform_fee_cents`. You receive formats `provider_payout_cents` inside the `you-receive` class, which uses the accent color. The page does not compute the split.
+
+The ledger heading is Ledger. An empty list says No ledger entries. Each row shows a label for `entry_type` and `formatCents(amount_cents)`. The labels are Patient payment, Cerbo COGS, Cerbo fee, and Provider payable. Any other `entry_type` is shown as stored.
+
+The integrity heading is Integrity. The three flags come from the response: `recomputed_fee_matches` is Fee matches formula, `split_adds_up` is Split adds up, and `ledger_matches_split` is Ledger matches split. A true flag shows a check. A false flag shows an x. The page does not recompute them.
+
+## Admin products
+
+`AdminProductsPage` mounts with the signed-in user id. It calls `apiGet("/admin/products", userId)`. The client fetches `/api/admin/products` with `X-User-Id`. The proxy strips `/api`. Until the list returns, the page shows "Loading products…". A failure shows `errorText` in an alert and no rows. A non-admin sees that API error. The page does not check the role itself.
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant Page as AdminProductsPage
+  participant Money as "money.ts"
+  participant Proxy as "Vite /api proxy"
+  participant API as "app.main"
+
+  Browser->>Page: open /admin/products
+  Page->>Proxy: GET /api/admin/products
+  Note over Page,Proxy: X-User-Id is the signed-in id
+  Proxy->>API: GET /admin/products
+  alt error envelope
+    API-->>Proxy: error JSON
+    Proxy-->>Page: error JSON
+    Page-->>Browser: alert
+  else product list
+    API-->>Proxy: 200 product list JSON
+    Proxy-->>Page: product JSON
+    Page->>Money: formatCents of suggested price and unit COGS
+    Page-->>Browser: name, sku, suggested price, stock and COGS
+    Browser->>Page: Save
+    alt stock is not a whole number
+      Page-->>Browser: Stock must be at least 0.
+    else invalid COGS dollars
+      Page->>Money: parseDollarsToCents
+      Money-->>Page: Invalid dollar amount
+      Page-->>Browser: that message
+    else parsed cents below 1
+      Page->>Money: parseDollarsToCents
+      Page-->>Browser: COGS must be greater than zero.
+    else stock_qty and unit_cogs_cents
+      Page->>Money: parseDollarsToCents
+      Note over Page: Save disabled while the request is in flight
+      Page->>Proxy: PUT /api/admin/products/id
+      Note over Page,Proxy: stock_qty and unit_cogs_cents
+      Proxy->>API: PUT /admin/products/id
+      alt error envelope
+        API-->>Proxy: error JSON
+        Proxy-->>Page: error JSON
+        Page-->>Browser: alert on that row
+      else product JSON
+        API-->>Proxy: 200 product JSON
+        Proxy-->>Page: updated product JSON
+        Page->>Money: formatCents of unit_cogs_cents
+        Page-->>Browser: saved stock and COGS
+      end
+    end
+  end
+```
+
+The heading is Stock & COGS. Each product shows `name`, `sku`, and Suggested price as `formatCents(suggested_price_cents)`. Suggested price is not an input. Stock starts as the stored `stock_qty`. COGS starts as `formatCents(unit_cogs_cents)`, so the field is dollars. Save reads the stock text as a whole number from `0` upward that is a safe integer. Any other stock shows "Stock must be at least 0." and does not PUT. COGS goes through `parseDollarsToCents`. A thrown `Error` shows that message. Parsed cents below 1 show "COGS must be greater than zero." and do not PUT. A valid save PUTs `{stock_qty, unit_cogs_cents}` to `/admin/products/{id}`. Both fields are sent. Save is disabled while that request is in flight, and a ref blocks a second call before the state updates. Success replaces that product in the list and shows the returned stock and `formatCents` of the returned `unit_cogs_cents`. The page does not refetch the list. A PUT error stays on that row.
+
 ## Dollars and generated types
 
-`src/lib/money.ts` exports `parseDollarsToCents` and `formatCents`. `ProductsPage` and `NewOrderPage` call both. `PatientOrdersPage` and `PatientOrderPage` call `formatCents` on stored cents. They do not call `parseDollarsToCents`. `parseDollarsToCents` accepts an optional leading `$` and commas only as thousands separators, then returns integer cents. A comma that is not a thousands separator is invalid. `formatCents` prints `$` and groups thousands. Neither function computes a split. The you-receive line formats `provider_payout_cents` from `POST /orders/preview`. On `/orders/new` that line uses the `you-receive` class. The order builder also formats `subtotal_cents`, `cogs_total_cents`, `platform_fee_cents`, and each line's `line_total_cents`, `line_cogs_cents`, and `line_margin_cents`. The patient order page formats `unit_price_cents`, `line_total_cents`, and `subtotal_cents` from the order JSON.
+`src/lib/money.ts` exports `parseDollarsToCents` and `formatCents`. `ProductsPage`, `NewOrderPage`, and `AdminProductsPage` call both. `PatientOrdersPage`, `PatientOrderPage`, `DashboardPage`, and `AuditPage` call `formatCents` on stored cents. They do not call `parseDollarsToCents`. `parseDollarsToCents` accepts an optional leading `$` and commas only as thousands separators, then returns integer cents. A comma that is not a thousands separator is invalid. `formatCents` prints `$` and groups thousands. Neither function computes a split. The you-receive line formats `provider_payout_cents` from `POST /orders/preview`. On `/orders/new` that line uses the `you-receive` class. The order builder also formats `subtotal_cents`, `cogs_total_cents`, `platform_fee_cents`, and each line's `line_total_cents`, `line_cogs_cents`, and `line_margin_cents`. The patient order page formats `unit_price_cents`, `line_total_cents`, and `subtotal_cents` from the order JSON. The dashboard formats `gmv_cents`, `platform_fee_cents`, `earnings_cents`, and the paid-order cents. The audit page formats stored line cents, the stored split, and ledger `amount_cents`. You receive on that page formats `provider_payout_cents` in the `you-receive` class. The audit page does not compute the split. The admin product page formats `suggested_price_cents` and `unit_cogs_cents`, and `parseDollarsToCents` turns the typed COGS dollars into `unit_cogs_cents`.
 
-`npm run gen:api` runs `openapi-typescript` against `http://127.0.0.1:8000/openapi.json` and writes `src/api/schema.ts`. `RoleSwitcher` imports `UserResponse` from that file. `ProductsPage` imports `ProviderProductResponse` and `PreviewResponse`. `NewOrderPage` imports `ProviderProductResponse`, `PreviewResponse`, `PreviewLineResponse`, and `OrderResponse`. Its `User` type comes from `RoleSwitcher`. `PatientOrdersPage` and `PatientOrderPage` import `OrderResponse`. The running page does not request the OpenAPI document.
+`npm run gen:api` runs `openapi-typescript` against `http://127.0.0.1:8000/openapi.json` and writes `src/api/schema.ts`. `RoleSwitcher` imports `UserResponse` from that file. `ProductsPage` imports `ProviderProductResponse` and `PreviewResponse`. `NewOrderPage` imports `ProviderProductResponse`, `PreviewResponse`, `PreviewLineResponse`, and `OrderResponse`. Its `User` type comes from `RoleSwitcher`. `PatientOrdersPage` and `PatientOrderPage` import `OrderResponse`. `DashboardPage` imports `DashboardResponse` and `PendingOrderResponse`. `AuditPage` imports `AuditResponse`. `AdminProductsPage` imports `AdminProductResponse`. The running page does not request the OpenAPI document.

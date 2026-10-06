@@ -4,10 +4,12 @@ import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "reac
 import { ApiError, apiGet } from "./api/client.ts";
 import { RoleSwitcher, type User } from "./components/RoleSwitcher.tsx";
 import { homeFor, navFor } from "./nav.ts";
+import { AdminProductsPage } from "./pages/AdminProductsPage.tsx";
+import { AuditRoute } from "./pages/AuditPage.tsx";
+import { DashboardPage } from "./pages/DashboardPage.tsx";
 import { NewOrderPage } from "./pages/NewOrderPage.tsx";
 import { PatientOrderRoute } from "./pages/PatientOrderPage.tsx";
 import { PatientOrdersPage } from "./pages/PatientOrdersPage.tsx";
-import { PlaceholderPage } from "./pages/PlaceholderPage.tsx";
 import { ProductsPage } from "./pages/ProductsPage.tsx";
 
 const STORAGE_KEY = "cerbo.userId";
@@ -137,7 +139,12 @@ export default function App() {
               me !== null ? <NewOrderPage key={me.id} userId={me.id} /> : <p>Loading account…</p>
             }
           />
-          <Route path="/dashboard" element={<PlaceholderPage title="Dashboard" me={me} />} />
+          <Route
+            path="/dashboard"
+            element={
+              me !== null ? <DashboardPage key={me.id} userId={me.id} /> : <p>Loading account…</p>
+            }
+          />
           <Route
             path="/patient/orders"
             element={
@@ -159,8 +166,20 @@ export default function App() {
             }
           />
           <Route
+            path="/orders/:orderId/audit"
+            element={
+              me !== null ? <AuditRoute key={me.id} userId={me.id} /> : <p>Loading account…</p>
+            }
+          />
+          <Route
             path="/admin/products"
-            element={<PlaceholderPage title="Stock & COGS" me={me} />}
+            element={
+              me !== null ? (
+                <AdminProductsPage key={me.id} userId={me.id} />
+              ) : (
+                <p>Loading account…</p>
+              )
+            }
           />
         </Routes>
       </div>
