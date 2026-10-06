@@ -99,6 +99,7 @@ From [architecture §11](docs/architecture.md):
 
 ## Docs
 
+- [Writeup: decisions, cuts, and AI usage](docs/WRITEUP.md)
 - [Product requirements](docs/prd.md)
 - [Architecture](docs/architecture.md)
 - [Tasks](docs/tasks.md)
