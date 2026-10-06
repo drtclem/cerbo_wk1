@@ -112,3 +112,12 @@ _Running notes for the "How you used AI" section of the writeup. Add an entry wh
 - **Comma fix from T11 review done:** commas accepted only as thousands separators; "19,99", "1,23", "1,2345" rejected, with Vitest cases.
 - **Agent clicked through it in a real browser** and cleaned up after itself (restored the seed catalog). Claude spot-checked its displayed number: $25.00 price on Magnesium (COGS $12.00) → fee 19¢ → payout $12.81, matching the screen exactly.
 - **Thoughtful UI detail from the agent:** the enable toggle saves the *last saved* price, not an unsaved draft in the text field, so toggling can't silently persist a half-typed price.
+
+### 2026-10-06 · T13 order builder (builder → review → created) · Cursor agent + verifier/reviewer
+- **Result:** VERIFIED, reviewer clean on second pass. The split shown at every step comes only from `POST /orders/preview`; Confirm sends exactly the previewed product, qty, and unit price, so what the provider reviews is what gets created. Pricing errors render on the offending line; order-level errors (e.g. `NEGATIVE_PAYOUT`) show once and block Continue.
+- **Reviewer catch:** the first version showed only unit amounts; for qty > 1 the line needed line total, line COGS, and line margin from the preview. Fixed (2 × Magnesium → $48.00 / $24.00 / $24.00).
+- **Agent's choices:** patient picker uses `GET /users` filtered to patients (no patients endpoint exists); all three steps on one route. Browser testing created and then cancelled orders 1–2 for Jane Doe, leaving stock unchanged.
+- **Deferred should-fixes, triaged by Claude:**
+  - Fixed in T14 prompt: Continue disabled with no explanation; a failed re-preview kicking the provider from review back to the builder.
+  - Accepted as-is: leaving the page mid-Confirm can still create the order (correct: the server request completed, and it shows on the dashboard as pending); `formatCents` could throw on an unsafe integer (the backend never returns one; money columns are SQLite integers far below 2^53 cents).
+- **Note:** the automated "Copy link" click failed only because the test browser window wasn't focused (a clipboard-permission quirk of automation), not a code bug.
