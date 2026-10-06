@@ -4,6 +4,7 @@ import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "reac
 import { ApiError, apiGet } from "./api/client.ts";
 import { RoleSwitcher, type User } from "./components/RoleSwitcher.tsx";
 import { homeFor, navFor } from "./nav.ts";
+import { NewOrderPage } from "./pages/NewOrderPage.tsx";
 import { PlaceholderPage } from "./pages/PlaceholderPage.tsx";
 import { ProductsPage } from "./pages/ProductsPage.tsx";
 
@@ -128,7 +129,12 @@ export default function App() {
             path="/products"
             element={me !== null ? <ProductsPage userId={me.id} /> : <p>Loading account…</p>}
           />
-          <Route path="/orders/new" element={<PlaceholderPage title="New order" me={me} />} />
+          <Route
+            path="/orders/new"
+            element={
+              me !== null ? <NewOrderPage key={me.id} userId={me.id} /> : <p>Loading account…</p>
+            }
+          />
           <Route path="/dashboard" element={<PlaceholderPage title="Dashboard" me={me} />} />
           <Route
             path="/patient/orders"
