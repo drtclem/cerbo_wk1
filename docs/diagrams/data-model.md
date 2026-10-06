@@ -1,4 +1,4 @@
-_Last updated: 2026-10-05 — T8: pay writes four ledger_entries and decrements stock._
+_Last updated: 2026-10-05 — T9: reporting reads ledger_entries; pay is still the only writer._
 
 # Data model
 
@@ -89,3 +89,5 @@ erDiagram
 `cancel_order` runs `UPDATE orders SET status='cancelled', cancelled_at=? WHERE id=? AND status='pending_payment'` with `synchronize_session=False`. One row commits. Zero rows rolls back and raises `OrderNotCancellable`. Cancel does not change stock, `payment_ref`, `paid_at`, or `ledger_entries`.
 
 `pay_order` claims with `UPDATE orders SET status='paid' WHERE id=? AND status='pending_payment'`, also with `synchronize_session=False`. It then decrements `products.stock_qty` by each line's `qty` (`WHERE id=? AND stock_qty>=qty`). On approval it sets `payment_ref` and `paid_at` and inserts four `ledger_entries` rows whose `created_at` is that `paid_at`: `patient_payment` = `subtotal_cents`, `cerbo_cogs` = `cogs_total_cents`, `cerbo_fee` = `platform_fee_cents`, `provider_payable` = `provider_payout_cents`. Those amounts come from the stored order columns. The claim, stock updates, order fields, and four ledger rows commit together. Ledger rows are not columns on the order JSON. Line totals in API responses are computed from the stored line by `line_amounts`; they are not columns.
+
+`provider_dashboard` and `order_audit` only read `orders`, `order_lines`, `ledger_entries`, and `users`. They do not insert, update, or delete. `pay_order` is still the only writer of `ledger_entries`. Dashboard headlines sum `patient_payment`, `cerbo_fee`, and `provider_payable` for this provider's paid orders. `cerbo_cogs` stays on the ledger and is not part of those sums. The tables and relationships above are unchanged.

@@ -1,4 +1,4 @@
-_Last updated: 2026-10-05 — T8: a patient pays one order; stock, charge, ledger, then ship._
+_Last updated: 2026-10-05 — T9: pay still writes the ledger; audit reads those rows._
 
 # POST /orders/{order_id}/pay
 
@@ -6,7 +6,7 @@ _Last updated: 2026-10-05 — T8: a patient pays one order; stock, charge, ledge
 
 `get_session` opens one `Session` and closes it with no extra commit. `db.make_engine` listens for `begin` and runs `BEGIN IMMEDIATE`. `pay_order` does not open another session and does not send its own `BEGIN`. The claim, stock updates, `payment_ref`, `paid_at`, and four `ledger_entries` commits are one transaction. `fulfillment.ship` runs after that commit.
 
-Create, view, and cancel stay in `flows/orders.md`.
+Create, view, and cancel stay in `flows/orders.md`. Dashboard and audit reads are in `flows/reporting.md`. Pay is still the only writer of `ledger_entries`.
 
 ```mermaid
 sequenceDiagram
@@ -100,4 +100,4 @@ sequenceDiagram
 
 **Ship.** `FakeFulfillment.ship` runs after the commit. It prints `would ship order #{id}` and appends the order id to `calls`. If `ship` raises, the service logs `fulfillment failed after order {id} was paid` and still returns the receipt. The commit is not undone. Returning an already-paid order does not ship.
 
-**Receipt.** HTTP 200 is `present_order`, the same order JSON as `GET /orders/{order_id}`: stored order columns, `patient_link` `/orders/{id}`, and line totals from `line_amounts`. `status` is `paid`, with `paid_at` and `payment_ref` set. Ledger rows are not on the receipt.
+**Receipt.** HTTP 200 is `present_order`, the same order JSON as `GET /orders/{order_id}`: stored order columns, `patient_link` `/orders/{id}`, and line totals from `line_amounts`. `status` is `paid`, with `paid_at` and `payment_ref` set. Ledger rows are not on the receipt. `GET /orders/{order_id}/audit` reads them. See `flows/reporting.md`.

@@ -1,8 +1,8 @@
-_Last updated: 2026-10-05 — T8: cancel is a conditional update; zero rows rolls back._
+_Last updated: 2026-10-05 — T9: dashboard and audit reads live in flows/reporting.md._
 
 # Create, view, and cancel
 
-`POST /orders/preview` is unchanged and does not write. See `flows/order-preview.md`. Pay is in `flows/pay.md`. The routes below share `services/orders` and the error envelope from `app.main`. `get_session` opens a `Session` and closes it with no extra commit. `create_order` and `cancel_order` commit inside the service. The engine `begin` listener runs `BEGIN IMMEDIATE` on that session.
+`POST /orders/preview` is unchanged and does not write. See `flows/order-preview.md`. Pay is in `flows/pay.md`. Dashboard and audit reads are in `flows/reporting.md`. The routes below share `services/orders` and the error envelope from `app.main`. `get_session` opens a `Session` and closes it with no extra commit. `create_order` and `cancel_order` commit inside the service. The engine `begin` listener runs `BEGIN IMMEDIATE` on that session.
 
 `patient_link` is always `/orders/{id}`.
 

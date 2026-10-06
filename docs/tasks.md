@@ -97,10 +97,10 @@ Implement architecture §4: `compute_fee`, `compute_split`, `validate_order`, `P
 ### T9. Reporting: dashboard and audit
 `GET /provider/dashboard`, `GET /orders/{id}/audit` (architecture §6), totals sourced from `ledger_entries`.
 **Done when tests prove:**
-- [ ] With a known scenario (e.g. 2 paid, 1 pending, 1 cancelled), totals for GMV, fees, and earnings are exact; units per product are correct; only paid orders count.
-- [ ] Pending orders are listed separately; cancelled ones aren't in totals.
-- [ ] A provider sees only their own data.
-- [ ] The audit returns lines, split, ledger rows, and `recomputed_fee_matches: true`; for an unpaid order, ledger is empty.
+- [x] With a known scenario (e.g. 2 paid, 1 pending, 1 cancelled), totals for GMV, fees, and earnings are exact; units per product are correct; only paid orders count.
+- [x] Pending orders are listed separately; cancelled ones aren't in totals.
+- [x] A provider sees only their own data.
+- [x] The audit returns lines, split, ledger rows, and `recomputed_fee_matches: true`; for an unpaid order, ledger is empty.
 
 ### T10. Admin stock and COGS
 `GET /admin/products`, `PUT /admin/products/{id}`.

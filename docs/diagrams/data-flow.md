@@ -1,8 +1,8 @@
-_Last updated: 2026-10-05 — T8: pay charges, writes stock and ledger, then ships._
+_Last updated: 2026-10-05 — T9: dashboard and audit read ledger and orders, and do not write._
 
 # Data flow
 
-Startup writes the seed into SQLite and keeps a session factory. `create_app` stores one `FakeNotifier` on `app.state.notifier`, one `FakePaymentProvider` on `app.state.payment_provider`, and one `FakeFulfillment` on `app.state.fulfillment`. `POST /orders/{order_id}/pay` reads the payment provider and the fulfillment stub. After startup, HTTP data moves on the health check, the user list, `GET /me`, the catalog routes, `POST /orders/preview`, `POST /orders`, `GET /orders/{order_id}`, `GET /patient/orders`, `POST /orders/{order_id}/cancel`, and `POST /orders/{order_id}/pay`. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. An order preview reads `provider_products` and `products.unit_cogs_cents`, validates the resolved lines, and returns an `OrderSplit`. It does not write. Create copies that snapshot onto `orders` and `order_lines`, commits, then calls `order_created`. Reads and cancel return stored order columns. Pay claims the order, decrements `products.stock_qty`, charges the stored subtotal, writes `payment_ref`, `paid_at`, and four `ledger_entries`, commits, then calls `ship`. Line totals use `line_amounts` on the stored line. The pay receipt is that same order JSON. Ledger rows are not on it. The frontend renders a static heading and does not send or receive API data.
+Startup writes the seed into SQLite and keeps a session factory. `create_app` stores one `FakeNotifier` on `app.state.notifier`, one `FakePaymentProvider` on `app.state.payment_provider`, and one `FakeFulfillment` on `app.state.fulfillment`. `POST /orders/{order_id}/pay` reads the payment provider and the fulfillment stub. After startup, HTTP data moves on the health check, the user list, `GET /me`, the catalog routes, `POST /orders/preview`, `POST /orders`, `GET /orders/{order_id}`, `GET /patient/orders`, `POST /orders/{order_id}/cancel`, `POST /orders/{order_id}/pay`, `GET /provider/dashboard`, and `GET /orders/{order_id}/audit`. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. An order preview reads `provider_products` and `products.unit_cogs_cents`, validates the resolved lines, and returns an `OrderSplit`. It does not write. Create copies that snapshot onto `orders` and `order_lines`, commits, then calls `order_created`. Reads and cancel return stored order columns. Pay claims the order, decrements `products.stock_qty`, charges the stored subtotal, writes `payment_ref`, `paid_at`, and four `ledger_entries`, commits, then calls `ship`. Line totals use `line_amounts` on the stored line for order JSON and for the audit. The pay receipt is that same order JSON. Ledger rows are not on it. `GET /provider/dashboard` sums `patient_payment`, `cerbo_fee`, and `provider_payable` from `ledger_entries` on this provider's paid orders. `GET /orders/{order_id}/audit` returns those ledger rows and checks `compute_fee`. Both reporting routes are read-only. The frontend renders a static heading and does not send or receive API data.
 
 ```mermaid
 flowchart LR
@@ -132,6 +132,41 @@ flowchart LR
   postPay -->|"200 order JSON"| httpClient
   postPay -->|"409 ORDER_NOT_PAYABLE or OUT_OF_STOCK"| apiError
   postPay -->|"402 PAYMENT_DECLINED"| apiError
+```
+
+Dashboard and audit are reads. They do not use the notifier, the payment provider, or fulfillment:
+
+```mermaid
+flowchart LR
+  httpClient["HTTP client"] -->|"GET /provider/dashboard"| getDashboard["get_provider_dashboard"]
+  httpClient -->|"GET /orders/order_id/audit"| getAudit["get_order_audit"]
+
+  getDashboard --> requireRole["require_role"]
+  getAudit --> requireRole
+  requireRole -->|"401 or 403"| apiError["APIError handler"]
+
+  getAudit --> ordersSvc["get_order"]
+  getAudit --> requireOrder["require_order_access"]
+  ordersSvc -->|"missing order"| apiError
+  requireOrder -->|"404 NOT_FOUND"| apiError
+
+  getDashboard --> reportingSvc["services/reporting"]
+  getAudit --> reportingSvc
+  reportingSvc --> getSession["get_session"]
+  getSession -->|"Session, close, no commit"| sqliteFile["SQLite cerbo.db"]
+  reportingSvc -->|"dashboard: paid and pending orders"| sqliteFile
+  reportingSvc -->|"users.name for those patients"| sqliteFile
+  reportingSvc -->|"dashboard headlines: ledger on paid orders"| sqliteFile
+  reportingSvc -->|"units: paid order_lines"| sqliteFile
+  reportingSvc -->|"audit: lines and ledger by order id"| sqliteFile
+  reportingSvc -->|"stored line"| lineAmounts["line_amounts"]
+  reportingSvc -->|"subtotal and fee_bps"| computeFee["compute_fee"]
+
+  getDashboard -->|"200 dashboard JSON"| httpClient
+  getAudit -->|"200 audit JSON"| httpClient
+  getAudit -->|"non-integer order_id"| validationHandler["RequestValidationError handler"]
+  validationHandler -->|"422 VALIDATION_ERROR"| httpClient
+  apiError -->|"error JSON"| httpClient
 ```
 
 ## Startup
@@ -272,10 +307,41 @@ The branch detail is in `flows/pay.md`. This section is what moves.
 12. **Ship.** After the commit, `FakeFulfillment.ship` prints `would ship order #{id}` and appends the order id to `calls`. An exception is logged. The receipt is still returned. The commit is not undone.
 13. **Out.** HTTP 200 and the same order JSON as `GET /orders/{order_id}`. Ledger rows are not on that body.
 
+## GET /provider/dashboard
+
+The branch detail is in `flows/reporting.md`. This route does not write.
+
+1. **In.** `GET /provider/dashboard` and header `X-User-Id`. No order id and no body.
+2. **Auth.** `require_role("provider")`. A patient or an admin is 403 `FORBIDDEN`. A missing or unknown user is 401 `UNAUTHENTICATED`.
+3. **Orders.** `provider_dashboard` selects `orders` where `provider_id` is the caller and `status` is `paid`, then the same query for `pending_payment`. Both are ordered by `orders.id`. `cancelled` is not selected, so those orders are absent from every list and from the totals.
+4. **Names.** `users.name` for the patient ids on the paid and pending rows. The name is the current `users` row.
+5. **Headlines.** `ledger_entries` whose `order_id` is one of the paid orders. `patient_payment` sums to `gmv_cents`, `cerbo_fee` to `platform_fee_cents`, and `provider_payable` to `earnings_cents`. `cerbo_cogs` is not added. No paid orders yields `0, 0, 0`. Paid-order money on the list is not this sum: each paid row copies `subtotal_cents`, `platform_fee_cents`, and `provider_payout_cents` from `orders`.
+6. **Paid rows.** `paid_at` is the stored value, or `""` when null. `patient_name` is the current name. `audit_link` is `/orders/{id}/audit`.
+7. **Units.** `order_lines` joined to `orders` where `provider_id` is the caller and `status` is `paid`, ordered by `order_lines.id`. `qty` is summed by `product_id`. `product_name` is the snapshot on the lowest `order_lines.id` for that product. The list is ordered by `product_id`. Pending and cancelled lines are not included.
+8. **Pending rows.** Each `pending_payment` order contributes `id`, `created_at`, `patient_id`, and `patient_name`.
+9. **Out.** HTTP 200 and `{gmv_cents, platform_fee_cents, earnings_cents, paid_orders, units_sold, pending_orders}`.
+10. **Storage.** Read only. The session closes with no commit. No notifier, charge, or ship.
+
+## GET /orders/{order_id}/audit
+
+The branch detail is in `flows/reporting.md`. This route does not write. It does not filter on `status`, so a provider can read a `pending_payment` or `cancelled` order they own. Those orders have an empty ledger until pay inserts rows.
+
+1. **In.** `GET /orders/{order_id}/audit` and header `X-User-Id`.
+2. **Auth.** `require_role("provider")` runs first. A patient or an admin is 403 `FORBIDDEN` before the order is loaded. A missing or unknown user is 401 `UNAUTHENTICATED`.
+3. **Request validation.** A non-integer `order_id` is 422 `VALIDATION_ERROR` before `get_order`. Nothing is written.
+4. **Load.** `get_order`. An id outside `1..9223372036854775807`, or a missing `orders` row, is 404 `NOT_FOUND` "Not found".
+5. **Access.** `require_order_access` allows the order's `provider_id` or `patient_id`. Another provider is 404 `NOT_FOUND`. The owning provider continues. A patient who owns the order never reaches this check.
+6. **Lines.** `order_audit` loads `order_lines` for that id, ordered by `order_lines.id`. `line_amounts(unit_price_cents, unit_cogs_cents, qty)` on the stored snapshot supplies `line_total_cents`, `line_cogs_cents`, and `line_margin_cents`. The live catalog is not read.
+7. **Split.** `subtotal_cents`, `cogs_total_cents`, `fee_bps`, `platform_fee_cents`, and `provider_payout_cents` are the stored `orders` columns. `id` and `status` are copied from the order.
+8. **Ledger.** `ledger_entries` for that id, ordered by `ledger_entries.id`. Each row contributes `entry_type`, `amount_cents`, and `created_at`. No rows, which is every unpaid order, yields `ledger: []`.
+9. **Fee check.** `recomputed_fee_matches` is `compute_fee(order.subtotal_cents, order.fee_bps) == order.platform_fee_cents`.
+10. **Out.** HTTP 200 and `{id, status, lines, subtotal_cents, cogs_total_cents, fee_bps, platform_fee_cents, provider_payout_cents, ledger, recomputed_fee_matches}`.
+11. **Storage.** Read only. The session closes with no commit.
+
 ## Not registered
 
-The provider dashboard, `GET /orders/{id}/audit`, and admin product routes are not registered.
+Admin product routes (`GET /admin/products`, `PUT /admin/products/{id}`) are not registered.
 
-`compute_split` and `compute_fee` run only when `validate_order` calls them. That happens on `PUT /provider/products/{product_id}` after the product is found, on `POST /orders/preview`, and on `POST /orders` because `create_order` calls `preview_order`. Pay does not call `validate_order`. `backend/tests/test_money.py` also calls the money module directly.
+`compute_split` runs only when `validate_order` calls it. That happens on `PUT /provider/products/{product_id}` after the product is found, on `POST /orders/preview`, and on `POST /orders` because `create_order` calls `preview_order`. Pay does not call `validate_order`. `order_audit` does not call `validate_order` or `compute_split`. It calls `compute_fee(subtotal_cents, fee_bps)` and sets `recomputed_fee_matches` when that equals the stored `platform_fee_cents`. `backend/tests/test_money.py` also calls the money module directly.
 
-`line_amounts` runs from `present_order` for every order JSON response, including the pay receipt. Those display amounts are `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. They are not stored on `order_lines`. Ledger rows are not part of that JSON.
+`line_amounts` runs from `present_order` for every order JSON response, including the pay receipt, and from `order_audit` for each stored line. Those display amounts are `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. They are not stored on `order_lines`. Ledger rows are not part of the order JSON. They are on the audit JSON, ordered by `ledger_entries.id`.

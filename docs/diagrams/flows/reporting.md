@@ -1,0 +1,117 @@
+_Last updated: 2026-10-05 — T9: a provider reads the dashboard and one order audit._
+
+# Dashboard and audit
+
+`api/reporting` is included from `app.main` after `api/orders`. Both routes depend on `require_role("provider")` and `get_session`. `provider_dashboard` and `order_audit` do not commit and do not insert, update, or delete. The session closes with no commit.
+
+Create, view, and cancel stay in `flows/orders.md`. Pay, which writes the four `ledger_entries`, stays in `flows/pay.md`.
+
+## Dashboard
+
+`GET /provider/dashboard` calls `provider_dashboard(session, user.id)`. It does not call `require_order_access`. Cancelled orders are not queried.
+
+```mermaid
+sequenceDiagram
+  participant Client as "HTTP client"
+  participant Route as "GET /provider/dashboard"
+  participant Auth as require_role
+  participant Svc as provider_dashboard
+  participant Db as "SQLite cerbo.db"
+
+  Client->>Route: X-User-Id
+  Route->>Auth: require_role provider
+  alt missing or unknown user
+    Auth-->>Client: 401 UNAUTHENTICATED
+  else role is not provider
+    Auth-->>Client: 403 FORBIDDEN
+  else provider
+    Route->>Svc: provider id
+    Svc->>Db: orders status paid, order by id
+    Svc->>Db: orders status pending_payment, order by id
+    Svc->>Db: users.name for those patient ids
+    Svc->>Db: ledger_entries for the paid order ids
+    Svc->>Db: order_lines join paid orders, order by line id
+    Route-->>Client: 200 dashboard JSON
+  end
+```
+
+**Auth.** A patient or an admin is 403 `FORBIDDEN` "Wrong role". A missing or unknown user is 401 `UNAUTHENTICATED`. There is no body and no path id, so this route has no `VALIDATION_ERROR`.
+
+**Orders.** Both queries filter `provider_id` to the caller. `paid` and `pending_payment` are loaded separately, each ordered by `orders.id`. `cancelled` is not selected. A provider with no matching rows gets empty lists and headline zeros.
+
+**Names.** `users.name` is loaded for the distinct patient ids on those orders. Paid and pending rows use that current name.
+
+**Headlines.** `gmv_cents` sums `patient_payment`. `platform_fee_cents` sums `cerbo_fee`. `earnings_cents` sums `provider_payable`. The query is `ledger_entries` whose `order_id` is in the paid set. `cerbo_cogs` is skipped. No paid orders returns `0, 0, 0` without reading the ledger.
+
+**Paid rows.** Each paid order copies `subtotal_cents`, `platform_fee_cents`, and `provider_payout_cents` from `orders`, not from the ledger sums. `paid_at` is the stored value, or `""` when null. `audit_link` is `/orders/{id}/audit`.
+
+**Units.** Lines come from `order_lines` joined to `orders` with `provider_id` equal to the caller and `status` `paid`, ordered by `order_lines.id`. `qty` is summed by `product_id`. `product_name` is the snapshot on the first line seen for that product, which is the lowest `order_lines.id`. The response list is ordered by `product_id`. Pending and cancelled lines are not included.
+
+**Pending rows.** Each `pending_payment` order contributes `id`, `created_at`, `patient_id`, and `patient_name`.
+
+**Out.** HTTP 200 is `{gmv_cents, platform_fee_cents, earnings_cents, paid_orders, units_sold, pending_orders}`. Nothing is written.
+
+## Audit
+
+`GET /orders/{order_id}/audit` checks the provider role first, then `get_order`, then `require_order_access`, then `order_audit`. A patient and an admin are 403 before the order is loaded.
+
+```mermaid
+sequenceDiagram
+  participant Client as "HTTP client"
+  participant Route as "GET /orders/order_id/audit"
+  participant Auth as require_role
+  participant Orders as get_order
+  participant Access as require_order_access
+  participant Svc as order_audit
+  participant Money as "line_amounts and compute_fee"
+  participant Db as "order_lines and ledger_entries"
+
+  Client->>Route: X-User-Id and order_id
+  Route->>Auth: require_role provider
+  alt missing or unknown user
+    Auth-->>Client: 401 UNAUTHENTICATED
+  else role is not provider
+    Auth-->>Client: 403 FORBIDDEN
+  else provider
+    alt order_id is not an integer
+      Route-->>Client: 422 VALIDATION_ERROR
+    else path accepted
+      Route->>Orders: get_order
+      alt missing order
+        Orders-->>Client: 404 NOT_FOUND
+      else loaded
+        Route->>Access: provider_id or patient_id
+        alt not the owner
+          Access-->>Client: 404 NOT_FOUND
+        else owning provider
+          Route->>Svc: order
+          Svc->>Db: order_lines order by id
+          Svc->>Money: line_amounts on each snapshot
+          Svc->>Db: ledger_entries order by id
+          Svc->>Money: compute_fee subtotal, fee_bps
+          Route-->>Client: 200 audit JSON
+        end
+      end
+    end
+  end
+```
+
+**Auth.** A patient or an admin is 403 `FORBIDDEN` "Wrong role" before `get_order`. That includes a patient who is the order's `patient_id`. A missing or unknown user is 401 `UNAUTHENTICATED`.
+
+**Path.** A non-integer `order_id` is 422 `VALIDATION_ERROR`, message "Invalid request", `line_index` null. `get_order` does not run.
+
+**Load.** An id outside `1..9223372036854775807`, or a missing `orders` row, raises `OrderNotFound`. The route maps that to 404 `NOT_FOUND` "Not found". `require_order_access` does not run.
+
+**Access.** `require_order_access` allows `user.id` equal to `provider_id` or `patient_id`. Another provider is 404 `NOT_FOUND` "Not found". The body does not say which case failed. The dashboard does not use this check; the audit does, after the role check.
+
+**Status.** The route does not filter on `status`. A `pending_payment` or `cancelled` order the provider owns is returned. Pay is what inserts ledger rows, so those unpaid orders have `ledger: []`.
+
+**Lines.** `order_lines` for that `order_id`, ordered by `order_lines.id`. `line_amounts` uses the stored `unit_price_cents`, `unit_cogs_cents`, and `qty`. It returns `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. The live catalog is not read. `validate_order` is not called.
+
+**Split.** `subtotal_cents`, `cogs_total_cents`, `fee_bps`, `platform_fee_cents`, and `provider_payout_cents` are the stored `orders` columns. `id` and `status` are copied from the order.
+
+**Ledger.** `ledger_entries` for that order, ordered by `ledger_entries.id`. Each item is `{entry_type, amount_cents, created_at}`. A paid order has the four rows pay inserted. An unpaid order has none.
+
+**Fee check.** `recomputed_fee_matches` is true when `compute_fee(subtotal_cents, fee_bps)` equals the stored `platform_fee_cents`. `compute_split` is not called.
+
+**Out.** HTTP 200 is `{id, status, lines, subtotal_cents, cogs_total_cents, fee_bps, platform_fee_cents, provider_payout_cents, ledger, recomputed_fee_matches}`. Nothing is written.
