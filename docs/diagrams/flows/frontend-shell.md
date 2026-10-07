@@ -455,7 +455,7 @@ sequenceDiagram
     else audit JSON
       API-->>Proxy: 200 audit JSON
       Proxy-->>Page: lines, stored split, ledger, flags
-      Note over Page: Money, StatusPill, SplitBar; does not compute the fee
+      Note over Page: Money, StatusPill, SplitBar, and no fee math
       Page-->>Browser: lines, SplitBar, ledger, and three integrity flags
     end
   end
