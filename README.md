@@ -40,7 +40,7 @@ npm install
 npm run dev
 ```
 
-The app listens on http://127.0.0.1:5173.
+The app listens on http://localhost:5173.
 
 Run tests, lint, and the production build:
 
@@ -55,7 +55,7 @@ npm run build
 
 The amounts below assume a fresh database. To reset, stop the API, delete `backend/cerbo.db`, and start it again (it re-seeds on startup).
 
-Open http://127.0.0.1:5173. The header **Role** menu lists the seed users:
+Open http://localhost:5173. The header **Role** menu lists the seed users:
 
 | Name | Role |
 |---|---|
