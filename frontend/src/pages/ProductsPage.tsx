@@ -57,7 +57,7 @@ export function ProductsPage({ userId }: { userId: number }) {
                 <th>Stock</th>
                 <th>Enabled</th>
                 <th>Default price</th>
-                <th>You receive</th>
+                <th>You earn per unit</th>
                 <th>
                   <span className="visually-hidden">Actions</span>
                 </th>
@@ -75,12 +75,14 @@ export function ProductsPage({ userId }: { userId: number }) {
   );
 }
 
+type UnitMargin = { payoutCents: number; cogsCents: number; feeCents: number };
+
 function ProductRow({ product, userId }: { product: ProviderProduct; userId: number }) {
   const [enabled, setEnabled] = useState(product.enabled);
   const [savedCents, setSavedCents] = useState(product.default_price_cents);
   const [draft, setDraft] = useState(formatCents(product.default_price_cents));
   const [dirty, setDirty] = useState(false);
-  const [payoutCents, setPayoutCents] = useState<number | null>(null);
+  const [margin, setMargin] = useState<UnitMargin | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -100,7 +102,7 @@ function ProductRow({ product, userId }: { product: ProviderProduct; userId: num
           cents = parseDollarsToCents(draft);
         } catch {
           if (!cancelled) {
-            setPayoutCents(null);
+            setMargin(null);
             setPreviewError("Invalid dollar amount");
           }
           return;
@@ -113,7 +115,11 @@ function ProductRow({ product, userId }: { product: ProviderProduct; userId: num
           if (cancelled) {
             return;
           }
-          setPayoutCents(body.provider_payout_cents);
+          setMargin({
+            payoutCents: body.provider_payout_cents,
+            cogsCents: body.cogs_total_cents,
+            feeCents: body.platform_fee_cents,
+          });
           setPreviewError(null);
         })
         .catch((cause: unknown) => {
@@ -123,7 +129,7 @@ function ProductRow({ product, userId }: { product: ProviderProduct; userId: num
           if (cause instanceof ApiError && cause.code === "PRODUCT_UNAVAILABLE") {
             return;
           }
-          setPayoutCents(null);
+          setMargin(null);
           setPreviewError(errorText(cause));
         });
     }, dirty ? PREVIEW_DELAY_MS : 0);
@@ -161,7 +167,7 @@ function ProductRow({ product, userId }: { product: ProviderProduct; userId: num
       setSavedCents(updated.default_price_cents);
       setSaveError(null);
       if (!updated.enabled) {
-        setPayoutCents(null);
+        setMargin(null);
         setPreviewError(null);
       }
     } catch (cause: unknown) {
@@ -249,16 +255,21 @@ function ProductRow({ product, userId }: { product: ProviderProduct; userId: num
               setDraft(event.target.value);
               setDirty(true);
               setSaveError(null);
-              setPayoutCents(null);
+              setMargin(null);
               setPreviewError(null);
             }}
           />
         </td>
         <td>
-          {payoutCents !== null ? (
-            <span>
-              you&apos;d receive <Money cents={payoutCents} emphasize /> at qty 1
-            </span>
+          {margin !== null ? (
+            <>
+              <div>
+                <Money cents={margin.payoutCents} emphasize />
+              </div>
+              <div className="muted">
+                after <Money cents={margin.cogsCents} /> cost + <Money cents={margin.feeCents} /> fee
+              </div>
+            </>
           ) : null}
         </td>
         <td>
