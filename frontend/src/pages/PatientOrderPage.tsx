@@ -172,6 +172,7 @@ function PatientOrderPage({
                 const value = event.target.value;
                 if (value === "fake_card_ok" || value === "fake_card_decline") {
                   setMethod(value);
+                  setPayError(null);
                 }
               }}
             >
@@ -187,7 +188,7 @@ function PatientOrderPage({
           </div>
         </>
       ) : null}
-      {payError !== null ? <InlineError message={payError} /> : null}
+      {canPay && payError !== null ? <InlineError message={payError} /> : null}
     </article>
   );
 }

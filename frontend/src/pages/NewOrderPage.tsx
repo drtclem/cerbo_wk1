@@ -638,10 +638,11 @@ function ReviewLine({ line, productName }: { line: PreviewLine; productName: str
 function CreatedOrder({ order, patientName }: { order: OrderResponse; patientName: string }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
+  const patientUrl = new URL(order.patient_link, window.location.origin).toString();
 
   async function copyLink() {
     try {
-      await navigator.clipboard.writeText(order.patient_link);
+      await navigator.clipboard.writeText(patientUrl);
       setCopied(true);
       setCopyError(null);
     } catch {
@@ -673,7 +674,7 @@ function CreatedOrder({ order, patientName }: { order: OrderResponse; patientNam
             <input
               aria-labelledby="patient-link-label"
               readOnly
-              value={order.patient_link}
+              value={patientUrl}
               onFocus={(event) => {
                 event.target.select();
               }}
