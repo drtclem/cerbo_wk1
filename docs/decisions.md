@@ -214,3 +214,48 @@ _Running log of product and architecture decisions. Feeds `prd.md` and `architec
 - Rejected: a fake login page (more UI, proves nothing extra), Stripe test mode (needs keys and setup; the brief says to fake it), a fake email inbox page (extra UI).
 - **Why ownership checks matter with fake auth:** the login is fake, but the permission rules are real, and real auth would rely on them (G1, G2). The reviewer's security pass checks them.
 - The README includes a **"What's stubbed"** table mirroring the one above.
+
+---
+
+## Phase 6 decisions (2026-10-09, after deployment)
+
+### D11. Clinical notes are written by the provider, never generated
+**Status:** Decided
+
+Each order line carries **dosing instructions** (pre-filled from a per-product default in the catalog, editable) and an optional **"why I recommend this"** note. Both are plain text the provider types; the patient sees them on the order page and receipt. Nothing in the app is generated: every number comes from the integer-cents formulas and every word of clinical text comes from a person.
+- Rejected: AI-suggested dosing or notes. For clinical content, "the provider wrote it" is the correct answer; a generated dose is a liability, not a feature.
+- Text is snapshotted on the line at creation like prices, rendered as plain text (no HTML), with length limits (dosing ≤ 200 chars, note ≤ 500).
+
+### D12. Research donations: 5% of the provider's margin, matched to each product
+**Status:** Decided
+
+- **Where it goes:** each product maps to one research fund (seeded below). An order's donation can therefore split across several funds, one per product line.
+- **How much:** a single on/off switch per order, fixed at **5% (500 bps) of the provider's margin on each line**. When on, each line's donation is `floor(line_margin_cents × 500 / 10000)` where `line_margin = line_total − line_cogs`. Rounded **down, per line**, so the donation never exceeds 5% and each fund's amount is exactly traceable to its line. Lines whose product has no fund donate 0.
+- **Who pays:** the provider, out of their payout. The patient's price, the COGS, and the 75 bps fee (still on the full subtotal) are unchanged. New invariant: `subtotal = COGS + fee + donation + provider payout`. Guardrail: payout after donation must be ≥ 0, otherwise `DONATION_EXCEEDS_PAYOUT`.
+- **Recorded like everything else:** the rate and per-line donation and fund (name + URL) are snapshotted at creation; payment writes one `research_donation` ledger row **per fund**; the audit gains a fourth check, *donation matches rate*.
+- **What the patient sees:** that their provider is donating part of their earnings from this order, and to which funds (with links). **Not the amount**: 5% of margin would reveal the provider's markup.
+- **Demo honesty:** no money is sent anywhere. The fund list is labeled as example organizations, not affiliated, no donations made. In production this needs a disbursement partner, tax-receipt handling, and a check of charitable-solicitation rules.
+- Rejected: a patient round-up (changes what the patient pays, contradicting D1/D3, and puts an ask inside a clinical recommendation); a popup per item (friction in a daily workflow); a free-entry percentage (more validation, little value for a demo).
+
+Seed funds (links checked 2026-10-09):
+
+| Product | Fund | Link |
+|---|---|---|
+| Omega-3 Fish Oil | American Heart Association: research programs | https://professional.heart.org/en/research-programs |
+| Vitamin D3 + K2 | ASBMR Fund for Research and Education (bone and mineral research) | https://www.asbmr.org/About/Fund-for-Research-and-Education |
+| Probiotic 50B | Crohn's & Colitis Foundation: research | https://www.crohnscolitisfoundation.org/research |
+| Magnesium Glycinate | American Migraine Foundation | https://americanmigrainefoundation.org/ |
+
+The Migraine Research Foundation was considered for magnesium and rejected: its domain currently serves unrelated gambling content.
+
+### D13. Patients can remove items before paying
+**Status:** Decided
+
+While an order is `pending_payment`, its patient can remove a line ("I already have D3"). At least one line must remain (otherwise: "At least one item must remain. Ask your provider to cancel the order."). The server recomputes the order's subtotal, COGS, fee, donation, and payout from the **remaining lines' stored prices and the order's stored rates**, using the same money functions; nothing is re-read from the catalog. Removed lines are kept (`removed_at`), excluded from totals, stock, ledger, and units sold, and shown to the provider as "Removed by patient" on the dashboard and audit.
+- Concurrency: removal uses the same conditional-update pattern as pay and cancel, so remove-vs-pay has exactly one winner.
+- Rejected: patient asks, provider approves (round trips for a decision that's the patient's to make); undo (not needed for the demo; the provider can rebuild the order).
+
+### D14. Input limits
+**Status:** Decided
+
+Request models cap `qty` at 1–1,000 and `unit_price_cents` at ≤ 1,000,000 ($10,000); one product may appear on only one line per order (`DUPLICATE_PRODUCT`). Ordering more than current stock stays allowed (stock is enforced at payment, D6) but the preview returns available stock per line and the builder warns. Found while reviewing the walkthrough recording: an absurd quantity previously overflowed SQLite's integer column with a 500.
