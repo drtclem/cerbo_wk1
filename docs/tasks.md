@@ -172,6 +172,9 @@ Order builder (two columns, sticky summary with live split bar), review/created,
 
 Decisions: D11–D14 in [`decisions.md`](decisions.md). Same workflow and rules as before: tester → implement → verifier → reviewer; **no git branches, commits, resets, or pushes**; the frontend never computes money; every new money path is integer cents through `money.py`. No migrations: schema changes ship with `create_all`, so delete `backend/cerbo.db` locally after pulling (the live demo resets on deploy and on login). Do the tasks in order; T23 and T24 both touch the split.
 
+### T20. Deploy packaging and demo login (done 2026-10-09, before this plan)
+One Docker image serves the API under `/api` and the built frontend at `/`; `POST /demo/reset` exists only with `DEMO_MODE`; **Log in** and **Log out** reset the shared demo data. Live on DigitalOcean App Platform at https://cerbowk1-e3z6c.ondigitalocean.app/, redeployed on every push to the GitHub mirror.
+
 ### T21. Input limits and a fuller receipt
 - Strict request limits: `qty` 1–1,000, `unit_price_cents` ≤ 1,000,000; reject a second line for the same product with `DUPLICATE_PRODUCT` (line_index of the duplicate). Applies to preview and create.
 - Preview returns `stock_available` per line; the builder shows a non-blocking "Only N in stock. Payment will fail unless stock is added." when qty > stock.
@@ -179,17 +182,17 @@ Decisions: D11–D14 in [`decisions.md`](decisions.md). Same workflow and rules 
 - Decline message on the patient page: "Payment was declined. Try a different card."
 - Products page: label the per-unit earnings "at qty 1".
 **Done when:**
-- [ ] Tests: qty 0 / 1,001 / 10^17 and price 1,000,001 → 422 (never 500); duplicate product → `DUPLICATE_PRODUCT`; qty > stock previews and creates, fails at pay as before.
-- [ ] Audit and receipt show payment reference and paid date for a paid order.
-- [ ] All existing tests pass; lint/build pass.
+- [x] Tests: qty 0 / 1,001 / 10^17 and price 1,000,001 → 422 (never 500); duplicate product → `DUPLICATE_PRODUCT`; qty > stock previews and creates, fails at pay as before.
+- [x] Audit and receipt show payment reference and paid date for a paid order.
+- [x] All existing tests pass; lint/build pass.
 
 ### T22. Dosing instructions and provider notes (D11)
 - `products.default_dosing` (seeded, e.g. "Example: 1 capsule daily with a meal"; admin can edit it on the admin page).
 - `order_lines.dosing` (≤ 200 chars, required, pre-filled from the product default) and `order_lines.note` (≤ 500, optional, "Why I recommend this"). Trimmed; snapshotted at creation like prices.
 - Builder: dosing input and an optional note per line; review step shows both. Patient order page and receipt show them under each item. Plain text only.
 **Done when:**
-- [ ] Tests: defaults pre-fill via the catalog response; over-length and blank dosing rejected; later catalog edits don't change existing orders' text; text containing `<script>` is stored and rendered as text.
-- [ ] Click-through: provider writes a note, patient sees it with the dosing.
+- [x] Tests: defaults pre-fill via the catalog response; over-length and blank dosing rejected; later catalog edits don't change existing orders' text; text containing `<script>` is stored and rendered as text.
+- [x] Click-through: provider writes a note, patient sees it with the dosing.
 
 ### T23. Research donations (D12)
 - `research_funds` table (id, name, url, description) seeded with the four funds in D12; `products.research_fund_id` (nullable).
@@ -199,16 +202,16 @@ Decisions: D11–D14 in [`decisions.md`](decisions.md). Same workflow and rules 
 - Preview/create accept `donate: bool`. Audit adds `donation_matches_rate` (recomputed per line from stored amounts) and includes donation in `split_adds_up` and `ledger_matches_split`. Dashboard adds "Donated to research" total.
 - UI: an on/off switch in the order summary ("Donate 5% of my margin to medical research"), remembered per browser as the provider's default; the split bar gets a fourth segment; each line shows its fund name, clickable to reveal the description and an external "Learn more" link (`target="_blank" rel="noopener noreferrer"`). Patient page: "Dr. {name} is donating part of their earnings from this order to medical research:" plus the fund names and links, **no amounts**. A small note wherever funds are listed: "Example organizations for this demo. Not affiliated; no donations are made."
 **Done when:**
-- [ ] Money tests: worked example with donation on and off, recomputed by hand in the test docstring; rounding-down case; product without a fund; `DONATION_EXCEEDS_PAYOUT` case; property test.
-- [ ] DB rejects a split that doesn't add up with donation included; ledger allows one donation row per fund and rejects a duplicate for the same fund.
-- [ ] Audit shows four ✓ checks; a tampered donation flips `donation_matches_rate` and `ledger_matches_split`.
-- [ ] Patient page never shows a donation amount.
-- [ ] README walkthrough gains a donation step with exact numbers.
+- [x] Money tests: worked example with donation on and off, recomputed by hand in the test docstring; rounding-down case; product without a fund; `DONATION_EXCEEDS_PAYOUT` case; property test.
+- [x] DB rejects a split that doesn't add up with donation included; ledger allows one donation row per fund and rejects a duplicate for the same fund.
+- [x] Audit shows four ✓ checks; a tampered donation flips `donation_matches_rate` and `ledger_matches_split`.
+- [x] Patient page never shows a donation amount.
+- [x] README walkthrough gains a donation step with exact numbers.
 
 ### T24. Patient removes items before paying (D13)
 - `order_lines.removed_at` (nullable). `POST /orders/{id}/lines/{line_id}/remove`: patient of the order only (others 404), order must be `pending_payment` (conditional update, same pattern as pay/cancel), at least one active line must remain (`LAST_LINE`). Recompute and store the order's split from the remaining lines' stored prices and the order's stored `fee_bps` and `donation_bps` via `money.py`.
 - Pay, stock, ledger, dashboard units, and audit use active lines only; removed lines are listed separately as "Removed by patient".
 - Patient page: a "Remove" button per line (with an "Are you sure?" inline step, not a browser dialog) while unpaid; totals update from the API response.
 **Done when:**
-- [ ] Tests: removal recomputes fee and donation exactly; can't remove the last line; can't remove after paid or cancelled; another patient gets 404; concurrent remove vs pay has exactly one winner and the charge equals the final stored total.
-- [ ] Provider dashboard and audit show the removed line, struck through, excluded from totals; all integrity checks still ✓.
+- [x] Tests: removal recomputes fee and donation exactly; can't remove the last line; can't remove after paid or cancelled; another patient gets 404; concurrent remove vs pay has exactly one winner and the charge equals the final stored total.
+- [x] Provider dashboard and audit show the removed line, struck through, excluded from totals; all integrity checks still ✓.

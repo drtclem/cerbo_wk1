@@ -205,7 +205,10 @@ function AuditPage({ userId }: { userId: number }) {
                     <Money cents={line.unit_cogs_cents} />
                   </td>
                   <td className="num">
-                    <Money cents={line.line_total_cents} />
+                    <s>
+                      <Money cents={line.line_total_cents} />
+                    </s>
+                    <div className="muted">Not charged</div>
                   </td>
                 </tr>
               ))}

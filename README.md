@@ -66,7 +66,8 @@ Local two-process development is unchanged: `uvicorn app.main:app` on port 8000 
 
 ## Live demo
 
-URL TBD.
+**https://cerbowk1-e3z6c.ondigitalocean.app/**  
+Click **Log in** and follow the walkthrough below. Hosted on DigitalOcean App Platform (one container, smallest plan); it redeploys on every push to `main`. The first load after a quiet spell can take a couple of seconds.
 
 Auth is fake (a role switcher, not real login). All seed data and orders are made up. Logging out calls the demo reset endpoint and clears the shared demo database for everyone using that deployment.
 
@@ -74,7 +75,7 @@ Auth is fake (a role switcher, not real login). All seed data and orders are mad
 
 Prefer a fresh database. With Docker (`DEMO_MODE=true`), **Log in** and **Log out** each reset the data. With the local API, delete `backend/cerbo.db` and restart, or start with `DEMO_MODE=true`.
 
-Open http://localhost:8080 (Docker) or http://localhost:5173 (dev). Click **Log in**. You start as **Dr. Maya Patel**. The header **Viewing as** menu lists the seed users (switching roles does not reset data):
+Open the [live demo](https://cerbowk1-e3z6c.ondigitalocean.app/), http://localhost:8080 (Docker), or http://localhost:5173 (dev). Click **Log in**. You start as **Dr. Maya Patel**. The header **Viewing as** menu lists the seed users (switching roles does not reset data):
 
 | Name | Role |
 |---|---|
@@ -86,15 +87,18 @@ Open http://localhost:8080 (Docker) or http://localhost:5173 (dev). Click **Log 
 Dr. Patel's catalog is already enabled at the suggested prices. This walkthrough uses Dr. Maya Patel and Jane Doe.
 
 1. Open **New order**.
-2. Choose patient **Jane Doe**. Add **Magnesium Glycinate** and set Qty to `2` (unit price stays `$24.00`). Add **Vitamin D3 + K2** and leave Qty at `1` (unit price `$18.00`).
+2. Choose patient **Jane Doe**. Add **Magnesium Glycinate** and set Qty to `2` (unit price stays `$24.00`). Add **Vitamin D3 + K2** and leave Qty at `1` (unit price `$18.00`). Each line's **Dosing** is pre-filled from the catalog ("Example: 1 capsule daily with a meal"); on Magnesium, type the note *Helps with sleep and muscle cramps.* in **Why I recommend this**.
 3. In the order summary, turn **on** **Donate 5% of my margin to medical research** (remembered in this browser as the provider default). Margins are **$24.00** and **$9.00** → donations **$1.20** (American Migraine Foundation) and **$0.45** (ASBMR) → total donation **$1.65**. The live preview should show subtotal **$66.00**, COGS **$33.00**, platform fee **$0.50**, research donation **$1.65**, and you receive **$30.85**. Each line shows its fund name (click for description and Learn more). Note: *Example organizations for this demo. Not affiliated; no donations are made.* Click **Continue**, then **Confirm**.
-4. The created screen shows a patient link such as `/orders/1`.
-5. Switch **Viewing as** to **Jane Doe (patient)**. The app opens **My orders**. Open the new order. The page says Dr. Maya Patel is donating part of their earnings to medical research and lists the fund names with links — **no donation amounts**.
-6. Set **Payment method** to **Decline test card** and click **Pay**. The page shows "Payment was declined." and the status stays **Pending payment**.
+4. The created screen shows the patient link (a full URL ending in `/orders/1`) with a **Copy** button.
+5. Switch **Viewing as** to **Jane Doe (patient)**. The app opens **My orders**. Open the new order. Each item shows **How to take it:** and Magnesium shows **Why Dr. Maya Patel recommends it:** with your note. The page says Dr. Maya Patel is donating part of their earnings to medical research and lists the fund names with links — **no donation amounts**.
+6. Set **Payment method** to **Decline test card** and click **Pay**. The page shows "Payment was declined. Try a different card." and the status stays **Pending payment**.
 7. Set **Payment method** to **OK test card** and click **Pay**. The page becomes a receipt with status **Paid** and total **$66.00** (still no donation amounts for the patient).
 8. Switch **Viewing as** back to **Dr. Maya Patel (provider)** and open **Dashboard**. GMV is **$66.00**, platform fees **$0.50**, donated to research **$1.65**, and earnings **$30.85**. Paid orders lists Jane Doe with those same amounts. Units sold are Magnesium Glycinate **2** and Vitamin D3 + K2 **1**. Pending orders is empty.
 9. Click **Audit** on that paid order. Lines, the split, and the ledger match: patient payment **$66.00**, Cerbo COGS **$33.00**, Cerbo fee **$0.50**, research donation **$1.20** (American Migraine Foundation), research donation **$0.45** (ASBMR), provider payable **$30.85**. All four integrity checks are marked ✓: fee matches formula, donation matches the rate, split adds up, and ledger matches split.
-10. Click **Log out**. The login screen returns and the database is reset for the next visitor.
+10. **Patient removes an item.** Still as Dr. Maya Patel, create a second order for **Jane Doe**: **Magnesium Glycinate** Qty `1` at `$24.00` and **Vitamin D3 + K2** Qty `1` at `$18.00`, donation still on. The preview shows subtotal **$42.00**, COGS **$21.00**, fee **$0.32**, research donation **$1.05** ($0.60 + $0.45), and you receive **$19.63**. Confirm it.
+11. Switch to **Jane Doe**, open the new order, click **Remove** on **Vitamin D3 + K2**, and confirm. The total becomes **$24.00**, and the last remaining item has no Remove button (at least one item must remain). Leave it unpaid.
+12. Switch back to **Dr. Maya Patel**. On **Dashboard** the order is under **Pending orders**; click **Audit**. Vitamin D3 + K2 is marked **Removed by patient**, and the split was recomputed from the stored prices: **$24.00** subtotal, **$12.00** COGS, **$0.18** fee, **$0.60** research donation, **$11.22** to you. All four checks are ✓.
+13. Click **Log out**. The login screen returns and the database is reset for the next visitor.
 
 ## What's stubbed
 
@@ -116,6 +120,9 @@ From [architecture §11](docs/architecture.md):
 - An external payment call runs inside a database transaction (architecture §7).
 - Fake auth: `X-User-Id` is trivially spoofable. The ownership rules are real; identity is not.
 - No migrations; the schema is created at startup.
+- The live demo shares one database: any visitor's Log in or Log out resets it for everyone.
+- The patient's order response still includes per-line cost and margin (the patient page hides them); production needs a patient-specific response.
+- Research donations are recorded and audited, not disbursed; the funds are example organizations.
 
 ## Docs
 
@@ -126,7 +133,7 @@ From [architecture §11](docs/architecture.md):
 - [Decisions](docs/decisions.md)
 - [AI log](docs/ai-log.md)
 - [Cursor agent workflow setup](docs/cursor-agent-workflow-setup.md)
-- [Assignment brief](docs/Cebro_wk1_overview.pdf)
+- [Assignment brief](docs/Cerbo_wk1_overview.pdf)
 - [Diagrams](docs/diagrams/overview.md)
   - [System overview](docs/diagrams/overview.md)
   - [Data flow](docs/diagrams/data-flow.md)

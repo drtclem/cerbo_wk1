@@ -16,22 +16,37 @@ _FUNDS = (
     (
         "American Heart Association: research programs",
         "https://professional.heart.org/en/research-programs",
-        "Example fund for cardiovascular research programs.",
+        (
+            "The American Heart Association funds cardiovascular and stroke research through "
+            "competitive grants to scientists. Paired with omega-3, which many people take "
+            "for heart health."
+        ),
     ),
     (
         "ASBMR Fund for Research and Education",
         "https://www.asbmr.org/About/Fund-for-Research-and-Education",
-        "Example fund for bone and mineral research.",
+        (
+            "The American Society for Bone and Mineral Research awards grants to researchers "
+            "studying bone, mineral, and musculoskeletal health. Paired with vitamin D3 + K2."
+        ),
     ),
     (
         "Crohn's & Colitis Foundation: research",
         "https://www.crohnscolitisfoundation.org/research",
-        "Example fund for IBD research.",
+        (
+            "The Crohn's & Colitis Foundation sets a research agenda with scientists and "
+            "patients and funds work toward cures for Crohn's disease and ulcerative colitis."
+            " Paired with probiotics."
+        ),
     ),
     (
         "American Migraine Foundation",
         "https://americanmigrainefoundation.org/",
-        "Example fund for migraine research.",
+        (
+            "The American Migraine Foundation is a nonprofit focused on migraine research, "
+            "advocacy, and awareness. Paired with magnesium, a common choice among people "
+            "with migraines."
+        ),
     ),
 )
 
