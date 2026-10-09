@@ -1,8 +1,8 @@
-_Last updated: 2026-10-09 — T23: create accepts donate; snapshots donation_bps/donation_cents and fund fields._
+_Last updated: 2026-10-09 — T24 / D13: present_order splits lines / removed_lines; link to remove-line flow._
 
 # Create, view, and cancel
 
-`POST /orders/preview` accepts `donate` and does not write. See `flows/order-preview.md`. Pay is in `flows/pay.md`. Dashboard and audit reads are in `flows/reporting.md`. The routes below share `services/orders` and the error envelope from `app.main`. `get_session` opens a `Session` and closes it with no extra commit. `create_order` and `cancel_order` commit inside the service. The engine `begin` listener runs `BEGIN IMMEDIATE` on that session.
+`POST /orders/preview` accepts `donate` and does not write. See `flows/order-preview.md`. Patient soft-remove is in `flows/remove-line.md`. Pay is in `flows/pay.md`. Dashboard and audit reads are in `flows/reporting.md`. The routes below share `services/orders` and the error envelope from `app.main`. `get_session` opens a `Session` and closes it with no extra commit. `create_order`, `remove_order_line`, and `cancel_order` commit inside the service. The engine `begin` listener runs `BEGIN IMMEDIATE` on that session.
 
 `patient_link` is always `/orders/{id}`.
 
@@ -60,11 +60,11 @@ sequenceDiagram
 
 **Price.** `preview_order` is the same function as preview, including `donate` → `donation_bps` and a pricing check of any resolved prefix before `PRODUCT_UNAVAILABLE`. `PricingError` uses the app handler: `code` is the pricing code, `message` is `detail`, `line_index` is the error's line index. `PRODUCT_UNAVAILABLE` uses message "Product is not available for this provider." A missing `products` row while copying names is the same 422 and still happens before `session.add`.
 
-**Row.** `status` is `pending_payment`. `fee_bps`, `donation_bps`, `subtotal_cents`, `cogs_total_cents`, `platform_fee_cents`, `donation_cents`, and `provider_payout_cents` are copied from the split. Each `order_lines` row stores `product_name`, `qty`, `unit_price_cents`, `unit_cogs_cents`, `dosing`, `note`, `donation_cents`, and fund snapshots (`fund_id`, `fund_name`, `fund_url`) from the preview extras. `payment_ref`, `paid_at`, and `cancelled_at` are null. Stock and `ledger_entries` are not touched.
+**Row.** `status` is `pending_payment`. `fee_bps`, `donation_bps`, `subtotal_cents`, `cogs_total_cents`, `platform_fee_cents`, `donation_cents`, and `provider_payout_cents` are copied from the split. Each `order_lines` row stores `product_name`, `qty`, `unit_price_cents`, `unit_cogs_cents`, `dosing`, `note`, `donation_cents`, and fund snapshots (`fund_id`, `fund_name`, `fund_url`) from the preview extras. `removed_at` is null. `payment_ref`, `paid_at`, and `cancelled_at` are null. Stock and `ledger_entries` are not touched.
 
 **Notify.** The notifier runs only after `commit`. `FakeNotifier` prints `order created: /orders/{id}` and appends `(order.id, patient_link)`. An exception is logged. The response is still HTTP 200 for the created order.
 
-**Out.** Stored order columns plus line totals from `line_amounts` on each stored line. `patient_link` is `/orders/{id}`.
+**Out.** Stored order columns plus line totals from `line_amounts` on each stored line. Active lines are in `lines`; soft-removed lines (none at create) are in `removed_lines`. `patient_link` is `/orders/{id}`.
 
 ## View
 
@@ -121,7 +121,7 @@ sequenceDiagram
 
 **List.** The query is `patient_id =` the caller. The route still calls `require_order_access` on each row, then presents it. No rows returns `[]`.
 
-**Amounts.** `line_amounts` returns `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. Order totals, `fee_bps`, `donation_bps`, and `donation_cents` are the stored `orders` columns. Line `donation_cents` and fund snapshots are stored on the line. The live catalog is not read. `compute_fee` is not called.
+**Amounts.** `present_order` partitions loaded lines: `removed_at IS NULL` → `lines`, `removed_at` set → `removed_lines`. `line_amounts` returns `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference on each. Order totals, `fee_bps`, `donation_bps`, and `donation_cents` are the stored `orders` columns. Line `donation_cents` and fund snapshots are stored on the line. The live catalog is not read. `compute_fee` is not called.
 
 ## Cancel
 

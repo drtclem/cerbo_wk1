@@ -1,4 +1,4 @@
-_Last updated: 2026-10-06 — T19 fixes: split bar widths are percentages of the track; enabled product rows preview payout on load._
+_Last updated: 2026-10-09 — T24 / D13: PatientOrderPage inline Remove; AuditPage lists removed_lines as Removed by patient._
 
 # Frontend shell
 
@@ -335,9 +335,24 @@ sequenceDiagram
       Proxy-->>Page: order JSON
       Note over Page: Money and StatusPill, UTC date prefix of created_at, no split
       alt status is paid
-        Page-->>Browser: Receipt, StatusPill Paid, Pay hidden
+        Page-->>Browser: Receipt, StatusPill Paid, Remove and Pay hidden
       else patient and pending_payment
-        Page-->>Browser: Order, StatusPill Pending payment, Pay
+        Page-->>Browser: Order, StatusPill Pending payment, optional Remove, Pay
+        opt more than one active line
+          Browser->>Page: Remove then Are you sure
+          Page->>Proxy: POST /api/orders/id/lines/line_id/remove
+          Note over Page,Proxy: no body
+          Proxy->>API: POST remove
+          alt error envelope
+            API-->>Proxy: error JSON
+            Proxy-->>Page: error JSON
+            Page-->>Browser: InlineError, confirm cleared
+          else updated order JSON
+            API-->>Proxy: 200 order JSON
+            Proxy-->>Page: order JSON
+            Page-->>Browser: refreshed lines and total
+          end
+        end
         Browser->>Page: Pay
         Note over Page: Pay disabled while the request is in flight
         Page->>Proxy: POST /api/orders/id/pay
@@ -350,20 +365,22 @@ sequenceDiagram
         else paid order JSON
           API-->>Proxy: 200 order JSON
           Proxy-->>Page: order JSON
-          Page-->>Browser: Receipt, StatusPill Paid, Pay hidden
+          Page-->>Browser: Receipt, StatusPill Paid, Remove and Pay hidden
         end
       else not payable on this page
-        Page-->>Browser: Order and StatusPill, Pay hidden
+        Page-->>Browser: Order and StatusPill, Remove and Pay hidden
       end
     end
   end
 ```
 
-The page is a centred receipt, max width 560px. The heading is Receipt when `status` is `paid`, and Order otherwise. Status is a `StatusPill`. The provider line is `From {name}`, using the user list `App` already loaded (`provider_id`); the page does not fetch users. Each line shows `product_name`, qty, `Money` of `unit_price_cents` as "each", and `Money` of `line_total_cents`. Total is `Money` of `subtotal_cents`. The page does not show a split bar, COGS, the platform fee, or the provider payout, and it does not compute the split.
+The page is a centred receipt, max width 560px. The heading is Receipt when `status` is `paid`, and Order otherwise. Status is a `StatusPill`. The provider line is `From {name}`, using the user list `App` already loaded (`provider_id`); the page does not fetch users. Each **active** line from `order.lines` shows `product_name`, qty, `Money` of `unit_price_cents` as "each", and `Money` of `line_total_cents`. Total is `Money` of `subtotal_cents`. The page does not show a split bar, COGS, the platform fee, or the provider payout, and it does not compute the split. Soft-removed lines are not listed on this page (they appear on the provider audit).
 
 The date line is `Prices set by your provider on {Mon D}`. `orderDateLabel` reads the `YYYY-MM-DD` prefix of `created_at`. The stored value is UTC `YYYY-MM-DDTHH:MM:SSZ`, so that prefix is the UTC date. The month is Jan through Dec and the day has no leading zero. A prefix that does not match is shown as the stored `created_at`.
 
-Pay is shown only when `role` is `patient` and `status` is `pending_payment`. The select sends `fake_card_ok` (OK test card, the default) or `fake_card_decline` (Decline test card). Pay POSTs `{payment_method}` to `/orders/{id}/pay`. The button is disabled while that request is in flight, and a ref blocks a second call before the state updates. A success replaces the order. A paid body renders Receipt, status Paid, and hides Pay. An error shows an alert and leaves the loaded order in place, so a declined `pending_payment` order can be paid again. A cancelled order, a non-patient, and any status other than `pending_payment` hide Pay.
+Remove is shown only when `role` is `patient`, `status` is `pending_payment`, and `order.lines.length > 1`. It uses an inline confirm ("Are you sure?") rather than a browser dialog (`beginRemoveConfirm` / `isRemoveConfirming` in `src/lib/removeLine.ts`). Confirm POSTs `/orders/{id}/lines/{line_id}/remove` with no body. The button is disabled while that request or pay is in flight. Success replaces the order from the response (totals refresh). An error shows `InlineError` and clears the confirm. When only one active line remains, Remove is hidden.
+
+Pay is shown only when `role` is `patient` and `status` is `pending_payment`. The select sends `fake_card_ok` (OK test card, the default) or `fake_card_decline` (Decline test card). Pay POSTs `{payment_method}` to `/orders/{id}/pay`. The button is disabled while that request is in flight, and a ref blocks a second call before the state updates. A success replaces the order. A paid body renders Receipt, status Paid, and hides Pay and Remove. An error shows an alert and leaves the loaded order in place, so a declined `pending_payment` order can be paid again. A cancelled order, a non-patient, and any status other than `pending_payment` hide Pay.
 
 ## Dashboard
 
@@ -454,20 +471,20 @@ sequenceDiagram
       Page-->>Browser: alert
     else audit JSON
       API-->>Proxy: 200 audit JSON
-      Proxy-->>Page: lines, stored split, ledger, flags
+      Proxy-->>Page: lines, removed_lines, stored split, ledger, flags
       Note over Page: Money, StatusPill, SplitBar, and no fee math
-      Page-->>Browser: lines, SplitBar, ledger, and three integrity flags
+      Page-->>Browser: active lines, Removed by patient rows, SplitBar, ledger, flags
     end
   end
 ```
 
-The heading is Audit, with a `StatusPill` and Order {id}. Lines are a table: product, qty, and `Money` for `unit_price_cents`, `unit_cogs_cents`, and `line_total_cents`.
+The heading is Audit, with a `StatusPill` and Order {id}. Active lines (`audit.lines`) are a table: product, qty, and `Money` for `unit_price_cents`, `unit_cogs_cents`, and `line_total_cents`. Soft-removed lines (`audit.removed_lines`) follow in the same table with class `line--removed` and muted label `REMOVED_BY_PATIENT_LABEL` ("Removed by patient") from `src/lib/removeLine.ts`. Their snapshot qty and prices remain visible; they are excluded from the stored totals.
 
 The split heading is Split. The page renders `SplitBar` with the stored `subtotal_cents`, `cogs_total_cents`, `platform_fee_cents`, and `provider_payout_cents` (default caption Patient pays). It does not compute the fee.
 
 The ledger heading is Ledger. An empty list says No ledger entries. Otherwise an accountant-style table shows a label for `entry_type` and `Money` of `amount_cents`, right-aligned. Rows are ordered Cerbo COGS, Cerbo fee, Provider payable, then Patient payment, which has a rule above it. Any other `entry_type` is shown as stored, between Provider payable and Patient payment. The labels are Patient payment, Cerbo COGS, Cerbo fee, and Provider payable.
 
-The integrity heading is Integrity. The three flags come from the response and render as a checklist (icon plus words): `recomputed_fee_matches` is "Fee matches the {rate} formula" where `{rate}` is `fee_bps` formatted with integer math (`75` → `0.75%`), `split_adds_up` is "Split adds up to the subtotal", and `ledger_matches_split` is "Ledger matches the split". A true flag shows a check icon. A false flag shows an x icon. The page does not recompute the fee or the flags.
+The integrity heading is Integrity. The four flags come from the response and render as a checklist (icon plus words): `recomputed_fee_matches` is "Fee matches the {rate} formula" where `{rate}` is `fee_bps` formatted with integer math (`75` → `0.75%`), `donation_matches_rate` is the donation-rate check, `split_adds_up` is "Split adds up to the subtotal", and `ledger_matches_split` is "Ledger matches the split". A true flag shows a check icon. A false flag shows an x icon. The page does not recompute the fee or the flags.
 
 ## Admin products
 

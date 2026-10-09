@@ -1,8 +1,8 @@
-_Last updated: 2026-10-09 — T23: donate on preview/create; four-way money split; research_donation ledger._
+_Last updated: 2026-10-09 — T24 / D13: remove-line flow; active lines for pay/ledger/units; audit removed_lines._
 
 # Data flow
 
-Startup writes the seed into SQLite and keeps a session factory. `create_app` stores one `FakeNotifier` on `app.state.notifier`, one `FakePaymentProvider` on `app.state.payment_provider`, and one `FakeFulfillment` on `app.state.fulfillment`. `POST /orders/{order_id}/pay` reads the payment provider and the fulfillment stub. After startup, HTTP data moves on the health check, the user list, `GET /me`, the catalog routes, `GET /admin/products`, `PUT /admin/products/{product_id}`, `POST /orders/preview`, `POST /orders`, `GET /orders/{order_id}`, `GET /patient/orders`, `POST /orders/{order_id}/cancel`, `POST /orders/{order_id}/pay`, `GET /provider/dashboard`, and `GET /orders/{order_id}/audit`. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. An order preview reads `provider_products`, `products.unit_cogs_cents`, and research-fund links, validates the resolved lines at `donation_bps` from optional body `donate`, and returns a four-way `OrderSplit`. It does not write. Create accepts the same `donate` flag, copies that snapshot onto `orders` and `order_lines` (including `donation_bps`/`donation_cents` and fund snapshots), commits, then calls `order_created`. Reads and cancel return stored order columns. Pay claims the order, decrements `products.stock_qty`, charges the stored subtotal, writes `payment_ref`, `paid_at`, four base `ledger_entries`, and any `research_donation` rows per fund, commits, then calls `ship`. Line totals use `line_amounts` on the stored line for order JSON and for the audit. The pay receipt is that same order JSON. Ledger rows are not on it. `GET /provider/dashboard` sums `patient_payment`, `cerbo_fee`, `research_donation`, and `provider_payable` from `ledger_entries` on this provider's paid orders (`donation_cents` is the research sum). `GET /orders/{order_id}/audit` returns those ledger rows, checks `compute_fee`, `donation_matches_rate`, whether the four-way stored split adds up, and whether the ledger matches that split. Both reporting routes are read-only. `GET /admin/products` reads `products` ordered by `id` and does not commit. `PUT /admin/products/{product_id}` writes only the sent `stock_qty` and/or `unit_cogs_cents`, then commits. Existing `order_lines` keep their snapshotted `unit_cogs_cents`. A later preview reads the new catalog COGS. The Vite app sends and receives JSON for `GET /users`, `GET /me`, and, from `ProductsPage`, `GET /provider/products`, `PUT /provider/products/{product_id}`, and `POST /orders/preview`. `NewOrderPage` also sends `GET /users` with `X-User-Id`, `GET /provider/products`, `POST /orders/preview`, and, after Confirm, `POST /orders`. `PatientOrdersPage` sends `GET /patient/orders`. `PatientOrderPage` sends `GET /orders/{order_id}` and, for a patient order in `pending_payment`, `POST /orders/{order_id}/pay` with `payment_method` `fake_card_ok` or `fake_card_decline`. `DashboardPage` sends `GET /provider/dashboard` and, on Cancel, `POST /orders/{order_id}/cancel`, then `GET /provider/dashboard` again. `AuditPage` sends `GET /orders/{order_id}/audit`. `AdminProductsPage` sends `GET /admin/products` and `PUT /admin/products/{product_id}` with `stock_qty` and `unit_cogs_cents`. Those fetches use relative `/api` URLs. The dev server proxies that prefix to `http://127.0.0.1:8000` and strips `/api`. Document URLs stay in the SPA. `src/lib/money.ts` parses and formats dollars in the browser. Commas are accepted only as thousands separators. It does not compute a split. The qty-1 you-receive figure on `/products` is `provider_payout_cents` from the preview response in the `you-receive` class. `NewOrderPage`, `DashboardPage`, and `AuditPage` show stored split cents with `SplitBar` / `Money`. Patient order pages, the dashboard, and the audit page format stored cents and do not compute a fee. The admin product page parses typed COGS dollars with `parseDollarsToCents`. Edges from **HTTP client** are direct API callers, including pytest `TestClient`. The browser path is the Frontend shell section.
+Startup writes the seed into SQLite and keeps a session factory. `create_app` stores one `FakeNotifier` on `app.state.notifier`, one `FakePaymentProvider` on `app.state.payment_provider`, and one `FakeFulfillment` on `app.state.fulfillment`. `POST /orders/{order_id}/pay` reads the payment provider and the fulfillment stub. After startup, HTTP data moves on the health check, the user list, `GET /me`, the catalog routes, `GET /admin/products`, `PUT /admin/products/{product_id}`, `POST /orders/preview`, `POST /orders`, `GET /orders/{order_id}`, `GET /patient/orders`, `POST /orders/{order_id}/cancel`, `POST /orders/{order_id}/lines/{line_id}/remove`, `POST /orders/{order_id}/pay`, `GET /provider/dashboard`, and `GET /orders/{order_id}/audit`. Catalog reads return product JSON. A provider price update validates one line, then writes that provider's `provider_products` row. An order preview reads `provider_products`, `products.unit_cogs_cents`, and research-fund links, validates the resolved lines at `donation_bps` from optional body `donate`, and returns a four-way `OrderSplit`. It does not write. Create accepts the same `donate` flag, copies that snapshot onto `orders` and `order_lines` (including `donation_bps`/`donation_cents` and fund snapshots), commits, then calls `order_created`. Reads and cancel return stored order columns (`lines` active, `removed_lines` soft-removed). Remove soft-sets `order_lines.removed_at` and recomputes order money via `money.py` from remaining stored prices plus stored `fee_bps` / `donation_bps`. Pay claims the order, decrements `products.stock_qty` for active lines only, charges the stored subtotal, writes `payment_ref`, `paid_at`, four base `ledger_entries`, and any `research_donation` rows per fund from active lines, commits, then calls `ship`. Line totals use `line_amounts` on the stored line for order JSON and for the audit. The pay receipt is that same order JSON. Ledger rows are not on it. `GET /provider/dashboard` sums `patient_payment`, `cerbo_fee`, `research_donation`, and `provider_payable` from `ledger_entries` on this provider's paid orders (`donation_cents` is the research sum); units sold ignore `removed_at IS NOT NULL`. `GET /orders/{order_id}/audit` returns active `lines`, separate `removed_lines`, ledger rows, checks `compute_fee`, `donation_matches_rate` on active lines, whether the four-way stored split adds up, and whether the ledger matches that split. Both reporting routes are read-only. `GET /admin/products` reads `products` ordered by `id` and does not commit. `PUT /admin/products/{product_id}` writes only the sent `stock_qty` and/or `unit_cogs_cents`, then commits. Existing `order_lines` keep their snapshotted `unit_cogs_cents`. A later preview reads the new catalog COGS. The Vite app sends and receives JSON for `GET /users`, `GET /me`, and, from `ProductsPage`, `GET /provider/products`, `PUT /provider/products/{product_id}`, and `POST /orders/preview`. `NewOrderPage` also sends `GET /users` with `X-User-Id`, `GET /provider/products`, `POST /orders/preview`, and, after Confirm, `POST /orders`. `PatientOrdersPage` sends `GET /patient/orders`. `PatientOrderPage` sends `GET /orders/{order_id}`, may `POST /orders/{order_id}/lines/{line_id}/remove` while unpaid with more than one line, and, for a patient order in `pending_payment`, `POST /orders/{order_id}/pay` with `payment_method` `fake_card_ok` or `fake_card_decline`. `DashboardPage` sends `GET /provider/dashboard` and, on Cancel, `POST /orders/{order_id}/cancel`, then `GET /provider/dashboard` again. `AuditPage` sends `GET /orders/{order_id}/audit` and labels removed lines "Removed by patient". `AdminProductsPage` sends `GET /admin/products` and `PUT /admin/products/{product_id}` with `stock_qty` and `unit_cogs_cents`. Those fetches use relative `/api` URLs. The dev server proxies that prefix to `http://127.0.0.1:8000` and strips `/api`. Document URLs stay in the SPA. `src/lib/money.ts` parses and formats dollars in the browser. Commas are accepted only as thousands separators. It does not compute a split. The qty-1 you-receive figure on `/products` is `provider_payout_cents` from the preview response in the `you-receive` class. `NewOrderPage`, `DashboardPage`, and `AuditPage` show stored split cents with `SplitBar` / `Money`. Patient order pages, the dashboard, and the audit page format stored cents and do not compute a fee. The admin product page parses typed COGS dollars with `parseDollarsToCents`. Edges from **HTTP client** are direct API callers, including pytest `TestClient`. The browser path is the Frontend shell section.
 
 ```mermaid
 flowchart LR
@@ -70,7 +70,7 @@ flowchart LR
   ordersSvc -->|"order_created after commit"| fakeNotifier
 ```
 
-`POST /orders/preview` does not write or notify. Body `donate` selects `donation_bps` `500` or `0`. The `create_order` and `cancel_order` edges above are the writes on `services/orders`. `pay_order` is the write on `services/payments`: it reads `app.state.payment_provider` and `app.state.fulfillment`. The next diagram shows which routes take the order writes, including pay:
+`POST /orders/preview` does not write or notify. Body `donate` selects `donation_bps` `500` or `0`. The `create_order`, `remove_order_line`, and `cancel_order` edges above are the writes on `services/orders`. `pay_order` is the write on `services/payments`: it reads `app.state.payment_provider` and `app.state.fulfillment`. The next diagram shows which routes take the order writes, including remove and pay:
 
 ```mermaid
 flowchart LR
@@ -78,12 +78,14 @@ flowchart LR
   httpClient -->|"GET /orders/order_id"| getOrderDetail["get_order_detail"]
   httpClient -->|"GET /patient/orders"| getPatientOrders["get_patient_orders"]
   httpClient -->|"POST /orders/order_id/cancel"| postCancel["post_cancel_order"]
+  httpClient -->|"POST /orders/id/lines/line_id/remove"| postRemove["post_remove_order_line"]
   httpClient -->|"POST /orders/order_id/pay"| postPay["post_pay_order"]
 
   postOrder --> requireRole["require_role"]
   getOrderDetail --> requireRole
   getPatientOrders --> requireRole
   postCancel --> requireRole
+  postRemove --> requireRole
   postPay --> requireRole
   requireRole -->|"401 or 403"| apiError["APIError handler"]
 
@@ -94,10 +96,12 @@ flowchart LR
   getOrderDetail --> ordersSvc
   getPatientOrders --> ordersSvc
   postCancel --> ordersSvc
+  postRemove --> ordersSvc
   postPay --> paymentsSvc["pay_order"]
   getOrderDetail --> requireOrder["require_order_access"]
   getPatientOrders --> requireOrder
   postCancel --> requireOrder
+  postRemove --> requireOrder
   postPay --> requireOrder
   requireOrder -->|"404 NOT_FOUND"| apiError
 
@@ -109,14 +113,15 @@ flowchart LR
   validateOrder -->|"PricingError"| pricingHandler["PricingError handler"]
   pricingHandler -->|"422 error JSON"| httpClient
   ordersSvc -->|"insert orders and order_lines, commit"| sqliteFile
+  ordersSvc -->|"soft-remove removed_at, recompute split"| sqliteFile
   ordersSvc -->|"UPDATE cancelled WHERE pending_payment"| sqliteFile
   ordersSvc -->|"order_created /orders/id"| fakeNotifier
   ordersSvc -->|"stored line"| lineAmounts["line_amounts"]
-  paymentsSvc -->|"stored line"| lineAmounts
-  paymentsSvc -->|"claim paid, decrement stock_qty"| sqliteFile
+  paymentsSvc -->|"active stored line"| lineAmounts
+  paymentsSvc -->|"claim paid, decrement stock_qty active lines"| sqliteFile
   paymentsSvc -->|"subtotal, key str order id"| paymentProvider
   paymentProvider -->|"ChargeResult"| paymentsSvc
-  paymentsSvc -->|"payment_ref, paid_at, ledger incl research_donation, commit"| sqliteFile
+  paymentsSvc -->|"payment_ref, paid_at, ledger from active lines, commit"| sqliteFile
   paymentsSvc -->|"ship after commit"| fakeFulfillment
 
   postOrder -->|"422 INVALID_PATIENT or PRODUCT_UNAVAILABLE"| apiError
@@ -129,6 +134,8 @@ flowchart LR
   getPatientOrders -->|"200 order list"| httpClient
   postCancel -->|"200 order JSON"| httpClient
   postCancel -->|"409 ORDER_NOT_CANCELLABLE"| apiError
+  postRemove -->|"200 order JSON"| httpClient
+  postRemove -->|"409 LAST_LINE or ORDER_NOT_REMOVABLE"| apiError
   postPay -->|"200 order JSON"| httpClient
   postPay -->|"409 ORDER_NOT_PAYABLE or OUT_OF_STOCK"| apiError
   postPay -->|"402 PAYMENT_DECLINED"| apiError
@@ -157,11 +164,11 @@ flowchart LR
   reportingSvc -->|"dashboard: paid and pending orders"| sqliteFile
   reportingSvc -->|"users.name for those patients"| sqliteFile
   reportingSvc -->|"dashboard headlines: ledger on paid orders"| sqliteFile
-  reportingSvc -->|"units: paid order_lines"| sqliteFile
-  reportingSvc -->|"audit: lines and ledger by order id"| sqliteFile
+  reportingSvc -->|"units: paid order_lines removed_at IS NULL"| sqliteFile
+  reportingSvc -->|"audit: active lines, removed_lines, ledger"| sqliteFile
   reportingSvc -->|"stored line"| lineAmounts["line_amounts"]
   reportingSvc -->|"subtotal and fee_bps"| computeFee["compute_fee"]
-  reportingSvc -->|"donation_matches_rate"| lineDonation["line_donation_cents"]
+  reportingSvc -->|"donation_matches_rate on active"| lineDonation["line_donation_cents"]
 
   getDashboard -->|"200 dashboard JSON"| httpClient
   getAudit -->|"200 audit JSON"| httpClient
@@ -198,7 +205,7 @@ flowchart LR
 
 ## Frontend shell
 
-The browser does not appear in the four diagrams above. It reaches `GET /users`, `GET /me`, the provider product and preview routes, and, from `NewOrderPage`, `POST /orders`, and only by fetching `/api/...`. `PatientOrdersPage` reaches `GET /patient/orders`. `PatientOrderPage` reaches `GET /orders/{order_id}` and `POST /orders/{order_id}/pay`. `DashboardPage` reaches `GET /provider/dashboard` and `POST /orders/{order_id}/cancel`. `AuditPage` reaches `GET /orders/{order_id}/audit`. `AdminProductsPage` reaches `GET /admin/products` and `PUT /admin/products/{product_id}`. The Vite dev server proxies that prefix and strips it. A document URL is not forwarded. `/products` is `ProductsPage`. `/orders/new` is a static route and is still `NewOrderPage`. `/patient/orders` is `PatientOrdersPage`. `/orders/:orderId` is `PatientOrderRoute` / `PatientOrderPage`. `/dashboard` is `DashboardPage`. `/orders/:orderId/audit` is `AuditRoute` / `AuditPage`. `/admin/products` is `AdminProductsPage`. No route renders `PlaceholderPage`.
+The browser does not appear in the four diagrams above. It reaches `GET /users`, `GET /me`, the provider product and preview routes, and, from `NewOrderPage`, `POST /orders`, and only by fetching `/api/...`. `PatientOrdersPage` reaches `GET /patient/orders`. `PatientOrderPage` reaches `GET /orders/{order_id}`, `POST /orders/{order_id}/lines/{line_id}/remove`, and `POST /orders/{order_id}/pay`. `DashboardPage` reaches `GET /provider/dashboard` and `POST /orders/{order_id}/cancel`. `AuditPage` reaches `GET /orders/{order_id}/audit`. `AdminProductsPage` reaches `GET /admin/products` and `PUT /admin/products/{product_id}`. The Vite dev server proxies that prefix and strips it. A document URL is not forwarded. `/products` is `ProductsPage`. `/orders/new` is a static route and is still `NewOrderPage`. `/patient/orders` is `PatientOrdersPage`. `/orders/:orderId` is `PatientOrderRoute` / `PatientOrderPage`. `/dashboard` is `DashboardPage`. `/orders/:orderId/audit` is `AuditRoute` / `AuditPage`. `/admin/products` is `AdminProductsPage`. No route renders `PlaceholderPage`.
 
 ```mermaid
 flowchart LR
@@ -232,6 +239,7 @@ flowchart LR
   newOrder -->|"POST /api/orders after Confirm"| proxy
   myOrders -->|"GET /api/patient/orders, X-User-Id"| proxy
   orderPage -->|"GET /api/orders/id, X-User-Id"| proxy
+  orderPage -->|"POST remove line while unpaid"| proxy
   orderPage -->|"POST pay, fake_card_ok or fake_card_decline"| proxy
   proxy -->|"GET /provider/products"| providerList["get_provider_products"]
   proxy -->|"PUT /provider/products/id"| providerPut["put_provider_product"]
@@ -239,6 +247,7 @@ flowchart LR
   proxy -->|"POST /orders"| createOrder["post_order"]
   proxy -->|"GET /patient/orders"| patientList["get_patient_orders"]
   proxy -->|"GET /orders/id"| orderGet["get_order_detail"]
+  proxy -->|"POST /orders/id/lines/line_id/remove"| orderRemove["post_remove_order_line"]
   proxy -->|"POST /orders/id/pay"| orderPay["post_pay_order"]
   providerList -->|"product JSON including stock_qty"| proxy
   providerPut -->|"updated product JSON"| proxy
@@ -246,6 +255,7 @@ flowchart LR
   createOrder -->|"order JSON, patient_link"| proxy
   patientList -->|"order list JSON"| proxy
   orderGet -->|"order JSON"| proxy
+  orderRemove -->|"order JSON or error"| proxy
   orderPay -->|"order JSON or error"| proxy
   proxy -->|"JSON"| products
   proxy -->|"JSON"| newOrder
@@ -263,7 +273,7 @@ flowchart LR
   products -->|"you receive from payout cents"| browser
   newOrder -->|"patients, stock, SplitBar, patient link"| browser
   myOrders -->|"StatusPill and Money total"| browser
-  orderPage -->|"Receipt when paid, else Pay"| browser
+  orderPage -->|"Receipt when paid, else Remove and Pay"| browser
 ```
 
 `DashboardPage`, `AuditPage`, and `AdminProductsPage` use the same proxy. Cancel has no body. A successful cancel refetches the dashboard. The audit page renders a `SplitBar` from stored cents and does not compute the fee. COGS is typed as dollars. `parseDollarsToCents` supplies `unit_cogs_cents` on PUT.
@@ -297,7 +307,7 @@ flowchart LR
   money -->|"unit_cogs_cents"| adminPage
 ```
 
-`App` sends `GET /api/users` with no `X-User-Id`. `GET /api/me` is sent only after an id is chosen, and that request sets the header. `NewOrderPage` sends `GET /api/users` with `X-User-Id`. `RoleSwitcher` renders the user list from `App` under the "Viewing as" label. It does not fetch on its own. `nav.ts` sends a provider to `/products`. `/orders/new` is a static route and still renders `NewOrderPage`. `/patient/orders` renders `PatientOrdersPage`. `/orders/:orderId` renders `PatientOrderRoute`, which renders `PatientOrderPage`. `/dashboard` renders `DashboardPage`. `/orders/:orderId/audit` renders `AuditRoute` / `AuditPage`. `/admin/products` renders `AdminProductsPage`. No route renders `PlaceholderPage`. `ProductsPage` and `NewOrderPage` call `parseDollarsToCents` and `formatCents`. `PatientOrdersPage`, `PatientOrderPage`, `DashboardPage`, and `AuditPage` render stored cents through `Money`. `AdminProductsPage` calls `parseDollarsToCents` on the typed COGS dollars and `formatCents` on stored cents. `AuditPage` does not compute the fee. Commas in the typed price are accepted only as thousands separators. Those functions do not call the API and do not compute a split. The checkbox PUT sends the new `enabled` flag and the last saved `default_price_cents`. It does not send an unsaved typed price. Save sends the checkbox state and the parsed cents. On `/products`, preview runs only after the price text changes, only while that row is enabled, and only after 300ms. The body is one line at qty 1. A disabled row does not call preview. On `/orders/new`, preview runs when every draft line has a valid qty and price, after 300ms. The body is the current lines. An empty line list does not call preview. Continue does not write. When Continue is disabled, the page shows one short reason: Pick a patient, Add at least one item, Fix the errors above, or Checking prices. A failed preview does not change the step. On review it stays on review and shows the error. Confirm POSTs `/orders` with the patient id and the preview line ids, qtys, and unit prices. Copy writes the response `patient_link` with `navigator.clipboard.writeText`. `PatientOrdersPage` GETs `/patient/orders` and lists each order's `StatusPill` and `Money` total, with a link to `/orders/{id}`. `PatientOrderPage` GETs `/orders/{id}`. A patient with status `pending_payment` POSTs `/orders/{id}/pay`. Pay is disabled while that request is in flight. A paid order renders heading Receipt and a Paid `StatusPill`, and hides Pay. The date line reads the UTC date prefix of `created_at`. The page does not compute the split. `npm run gen:api` writes `src/api/schema.ts` from `http://127.0.0.1:8000/openapi.json` when someone runs the script. The page does not request that URL. The branch detail is in `flows/frontend-shell.md`.
+`App` sends `GET /api/users` with no `X-User-Id`. `GET /api/me` is sent only after an id is chosen, and that request sets the header. `NewOrderPage` sends `GET /api/users` with `X-User-Id`. `RoleSwitcher` renders the user list from `App` under the "Viewing as" label. It does not fetch on its own. `nav.ts` sends a provider to `/products`. `/orders/new` is a static route and still renders `NewOrderPage`. `/patient/orders` renders `PatientOrdersPage`. `/orders/:orderId` renders `PatientOrderRoute`, which renders `PatientOrderPage`. `/dashboard` renders `DashboardPage`. `/orders/:orderId/audit` renders `AuditRoute` / `AuditPage`. `/admin/products` renders `AdminProductsPage`. No route renders `PlaceholderPage`. `ProductsPage` and `NewOrderPage` call `parseDollarsToCents` and `formatCents`. `PatientOrdersPage`, `PatientOrderPage`, `DashboardPage`, and `AuditPage` render stored cents through `Money`. `AdminProductsPage` calls `parseDollarsToCents` on the typed COGS dollars and `formatCents` on stored cents. `AuditPage` does not compute the fee. Commas in the typed price are accepted only as thousands separators. Those functions do not call the API and do not compute a split. The checkbox PUT sends the new `enabled` flag and the last saved `default_price_cents`. It does not send an unsaved typed price. Save sends the checkbox state and the parsed cents. On `/products`, preview runs only after the price text changes, only while that row is enabled, and only after 300ms. The body is one line at qty 1. A disabled row does not call preview. On `/orders/new`, preview runs when every draft line has a valid qty and price, after 300ms. The body is the current lines. An empty line list does not call preview. Continue does not write. When Continue is disabled, the page shows one short reason: Pick a patient, Add at least one item, Fix the errors above, or Checking prices. A failed preview does not change the step. On review it stays on review and shows the error. Confirm POSTs `/orders` with the patient id and the preview line ids, qtys, and unit prices. Copy writes the response `patient_link` with `navigator.clipboard.writeText`. `PatientOrdersPage` GETs `/patient/orders` and lists each order's `StatusPill` and `Money` total, with a link to `/orders/{id}`. `PatientOrderPage` GETs `/orders/{id}`. While unpaid with more than one active line, Remove POSTs `/orders/{id}/lines/{line_id}/remove` after an inline confirm; the page replaces the order from the response. A patient with status `pending_payment` POSTs `/orders/{id}/pay`. Pay is disabled while that request is in flight. A paid order renders heading Receipt and a Paid `StatusPill`, and hides Pay and Remove. The date line reads the UTC date prefix of `created_at`. The page does not compute the split. `npm run gen:api` writes `src/api/schema.ts` from `http://127.0.0.1:8000/openapi.json` when someone runs the script. The page does not request that URL. The branch detail is in `flows/frontend-shell.md`.
 
 ## Startup
 
@@ -384,9 +394,9 @@ The branch detail is in `flows/order-preview.md`. This route does not call the n
 5. **Patient.** `create_order` checks the patient before preview. An id outside `1..9223372036854775807`, a missing `users` row, or a role other than `patient` raises `InvalidPatient`. The route maps that to 422 `INVALID_PATIENT`, message "Patient must be a patient user." Nothing is written.
 6. **Price.** `preview_order` runs exactly as on `POST /orders/preview`, including `donate` → `donation_bps` and `validate_order` at `FEE_BPS_DEFAULT`. `PricingError` is not caught in the route and becomes the same 422 pricing body. `ProductUnavailable` becomes 422 `PRODUCT_UNAVAILABLE` with `line_index`. Either one happens before the insert.
 7. **Names.** After the preview succeeds, `products.name` is copied for each line. A missing product raises `ProductUnavailable` and still writes nothing.
-8. **Write.** One new `orders` row: the caller as `provider_id`, the requested `patient_id`, `status` `pending_payment`, `fee_bps`, `donation_bps`, and the four-way order totals from the `OrderSplit`, `payment_ref` null, `created_at` as UTC `YYYY-MM-DDTHH:MM:SSZ`, `paid_at` null, `cancelled_at` null. `flush` assigns `orders.id`. Each line becomes an `order_lines` row: `product_id`, `product_name`, `qty`, `unit_price_cents`, `unit_cogs_cents`, `donation_cents`, and fund snapshots from the preview extras. One `commit`. `products.stock_qty` is unchanged. No `ledger_entries` row is inserted.
+8. **Write.** One new `orders` row: the caller as `provider_id`, the requested `patient_id`, `status` `pending_payment`, `fee_bps`, `donation_bps`, and the four-way order totals from the `OrderSplit`, `payment_ref` null, `created_at` as UTC `YYYY-MM-DDTHH:MM:SSZ`, `paid_at` null, `cancelled_at` null. `flush` assigns `orders.id`. Each line becomes an `order_lines` row: `product_id`, `product_name`, `qty`, `unit_price_cents`, `unit_cogs_cents`, `donation_cents`, and fund snapshots from the preview extras; `removed_at` null. One `commit`. `products.stock_qty` is unchanged. No `ledger_entries` row is inserted.
 9. **Notify.** After that commit, `order_created(order, "/orders/{id}")` runs. `FakeNotifier` prints `order created: /orders/{id}` and appends `(order.id, "/orders/{id}")` to `calls`. If `order_created` raises, the service logs the exception and still returns the order. The commit is not undone.
-10. **Out.** HTTP 200 and the order JSON from `present_order`: stored order columns (including donation fields), `patient_link` `/orders/{id}`, and line totals from `line_amounts` on each stored line. The fee and donation rate are the stored columns, not a new calculation.
+10. **Out.** HTTP 200 and the order JSON from `present_order`: stored order columns (including donation fields), `patient_link` `/orders/{id}`, active `lines`, empty `removed_lines`, and line totals from `line_amounts` on each stored line. The fee and donation rate are the stored columns, not a new calculation.
 
 The branch detail is in `flows/orders.md`.
 
@@ -397,8 +407,8 @@ The branch detail is in `flows/orders.md`.
 3. **Request validation.** `order_id` must be an integer. A non-integer path raises `RequestValidationError` before the handler: HTTP 422 `VALIDATION_ERROR`. Nothing is written.
 4. **Load.** An id outside `1..9223372036854775807`, or `session.get(Order, order_id)` missing, raises `OrderNotFound`. The route maps that to 404 `NOT_FOUND` "Not found".
 5. **Access.** `require_order_access` allows the order's `provider_id` or `patient_id`. Any other user gets the same 404. The body does not say which case failed.
-6. **Present.** `order_lines` loads `order_lines` for that id, ordered by `order_lines.id`. `present_order` copies stored order columns. For each line, `line_amounts(unit_price_cents, unit_cogs_cents, qty)` supplies `line_total_cents`, `line_cogs_cents`, and `line_margin_cents`. It does not read the live catalog and does not call `compute_fee`.
-7. **Out.** HTTP 200 and one order object: `{id, provider_id, patient_id, status, patient_link, created_at, paid_at, cancelled_at, payment_ref, lines, subtotal_cents, cogs_total_cents, fee_bps, platform_fee_cents, donation_bps, donation_cents, provider_payout_cents}`. `patient_link` is `/orders/{id}`. Lines include stored `donation_cents` and fund snapshots when present.
+6. **Present.** `order_lines` loads `order_lines` for that id, ordered by `order_lines.id`. `present_order` copies stored order columns and partitions lines by `removed_at`. For each line, `line_amounts(unit_price_cents, unit_cogs_cents, qty)` supplies `line_total_cents`, `line_cogs_cents`, and `line_margin_cents`. It does not read the live catalog and does not call `compute_fee`.
+7. **Out.** HTTP 200 and one order object: `{id, provider_id, patient_id, status, patient_link, created_at, paid_at, cancelled_at, payment_ref, lines, removed_lines, subtotal_cents, cogs_total_cents, fee_bps, platform_fee_cents, donation_bps, donation_cents, provider_payout_cents}`. `patient_link` is `/orders/{id}`. Active lines (`removed_at` null) are in `lines`; soft-removed lines are in `removed_lines`. Lines include stored `donation_cents` and fund snapshots when present.
 8. **Storage.** Read only. The session closes with no commit.
 
 ## GET /patient/orders
@@ -419,6 +429,18 @@ The branch detail is in `flows/orders.md`.
 6. **Out.** HTTP 200 and the same order JSON as the get route, with `status` `cancelled` and the new `cancelled_at`. Line amounts still come from the stored lines through `line_amounts`.
 7. **Unchanged.** No notifier call. `products.stock_qty` is unchanged. No `ledger_entries` row is inserted. `payment_ref` and `paid_at` stay as they were.
 
+## POST /orders/{order_id}/lines/{line_id}/remove
+
+The branch detail is in `flows/remove-line.md`. This section is what moves.
+
+1. **In.** `POST /orders/{order_id}/lines/{line_id}/remove` and header `X-User-Id`. No body.
+2. **Auth.** `require_role("patient")`. A provider or an admin is 403 `FORBIDDEN`. A missing or unknown user is 401 `UNAUTHENTICATED`.
+3. **Request validation.** Non-integer `order_id` or `line_id` is 422 `VALIDATION_ERROR` before `remove_order_line`. Nothing is written.
+4. **Load and access.** Same `get_order` and `require_order_access` as the get route. Missing or not the order's patient is 404 `NOT_FOUND`.
+5. **Soft-remove.** While `pending_payment` and more than one active line remain, `UPDATE order_lines SET removed_at=? WHERE id=? AND order_id=? AND removed_at IS NULL`. Then `validate_order` recomputes the order money columns from remaining stored line prices and the order's stored `fee_bps` / `donation_bps`. Those rates are not changed. One `commit`.
+6. **Errors.** Last active line → 409 `LAST_LINE`. Already paid/cancelled/already-removed/lost race → 409 `ORDER_NOT_REMOVABLE`. Remaining lines fail pricing → 409 `LINE_NOT_REMOVABLE`. Unknown line → 404 `NOT_FOUND`.
+7. **Out.** HTTP 200 order JSON with recomputed totals, active `lines`, and `removed_lines`.
+
 ## POST /orders/{order_id}/pay
 
 The branch detail is in `flows/pay.md`. This section is what moves.
@@ -431,9 +453,9 @@ The branch detail is in `flows/pay.md`. This section is what moves.
 6. **Already paid.** `status` `paid` returns `present_order` of the stored row and rolls back. `charge` is not called. `ship` is not called. A replay of a paid order is this path.
 7. **Cancelled.** Any other status than `paid` or `pending_payment` rolls back and becomes 409 `ORDER_NOT_PAYABLE`, message "Order cannot be paid." Nothing is charged.
 8. **Claim.** `UPDATE orders SET status='paid' WHERE id=? AND status='pending_payment'` with `synchronize_session=False`. Zero rows rolls back, expires the session, and the next attempt reads again. A paid re-read returns the receipt and does not charge or ship. A cancelled re-read is 409 and does not charge. A row that is still `pending_payment` tries the claim again, up to three attempts. Three lost claims become 409 `ORDER_NOT_PAYABLE`.
-9. **Stock.** For each stored line, `UPDATE products SET stock_qty=stock_qty-qty WHERE id=? AND stock_qty>=qty`, also with `synchronize_session=False`. Any line with zero rows rolls back the claim and the stock changes. The route returns 409 `OUT_OF_STOCK`, message "Not enough stock." `charge` is not called.
+9. **Stock.** For each **active** line (`removed_at IS NULL`), `UPDATE products SET stock_qty=stock_qty-qty WHERE id=? AND stock_qty>=qty`, also with `synchronize_session=False`. Soft-removed lines are skipped. Any active line with zero rows rolls back the claim and the stock changes. The route returns 409 `OUT_OF_STOCK`, message "Not enough stock." `charge` is not called.
 10. **Charge.** `charge(subtotal_cents, idempotency_key=str(order.id), payment_method)`. `fake_card_decline` declines. A decline, or an approved result with `ref` null, rolls back and returns 402 `PAYMENT_DECLINED`, message "Payment was declined." `status` stays `pending_payment`. `ship` is not called. `fake_card_ok` approves with `ref` `fake_{order.id}`.
-11. **Ledger.** The service sets `payment_ref` and `paid_at`, then inserts four base `ledger_entries` from the stored order columns (`fund_id` null): `patient_payment` = `subtotal_cents`, `cerbo_cogs` = `cogs_total_cents`, `cerbo_fee` = `platform_fee_cents`, `provider_payable` = `provider_payout_cents`. It then inserts one `research_donation` row per fund with a positive summed line `donation_cents`. `created_at` on each row is `paid_at`. One `commit` stores the claim, the stock decrements, those order fields, and the ledger rows.
+11. **Ledger.** The service sets `payment_ref` and `paid_at`, then inserts four base `ledger_entries` from the stored order columns (`fund_id` null): `patient_payment` = `subtotal_cents`, `cerbo_cogs` = `cogs_total_cents`, `cerbo_fee` = `platform_fee_cents`, `provider_payable` = `provider_payout_cents`. It then inserts one `research_donation` row per fund with a positive summed **active** line `donation_cents`. `created_at` on each row is `paid_at`. One `commit` stores the claim, the stock decrements, those order fields, and the ledger rows.
 12. **Ship.** After the commit, `FakeFulfillment.ship` prints `would ship order #{id}` and appends the order id to `calls`. An exception is logged. The receipt is still returned. The commit is not undone.
 13. **Out.** HTTP 200 and the same order JSON as `GET /orders/{order_id}`. Ledger rows are not on that body.
 
@@ -447,7 +469,7 @@ The branch detail is in `flows/reporting.md`. This route does not write.
 4. **Names.** `users.name` for the patient ids on the paid and pending rows. The name is the current `users` row.
 5. **Headlines.** `ledger_entries` whose `order_id` is one of the paid orders. `patient_payment` sums to `gmv_cents`, `cerbo_fee` to `platform_fee_cents`, `research_donation` to `donation_cents`, and `provider_payable` to `earnings_cents`. `cerbo_cogs` is not added. No paid orders yields `0, 0, 0, 0`. Paid-order money on the list is not this sum: each paid row copies `subtotal_cents`, `platform_fee_cents`, `donation_cents`, and `provider_payout_cents` from `orders`.
 6. **Paid rows.** `paid_at` is the stored value, or `""` when null. `patient_name` is the current name. `audit_link` is `/orders/{id}/audit`.
-7. **Units.** `order_lines` joined to `orders` where `provider_id` is the caller and `status` is `paid`, ordered by `order_lines.id`. `qty` is summed by `product_id`. `product_name` is the snapshot on the lowest `order_lines.id` for that product. The list is ordered by `product_id`. Pending and cancelled lines are not included.
+7. **Units.** `order_lines` joined to `orders` where `provider_id` is the caller, `status` is `paid`, and `removed_at IS NULL`, ordered by `order_lines.id`. Soft-removed lines are excluded. `qty` is summed by `product_id`. `product_name` is the snapshot on the lowest matching `order_lines.id` for that product. The list is ordered by `product_id`. Pending and cancelled lines are not included.
 8. **Pending rows.** Each `pending_payment` order contributes `id`, `created_at`, `patient_id`, and `patient_name`.
 9. **Out.** HTTP 200 and `{gmv_cents, platform_fee_cents, donation_cents, earnings_cents, paid_orders, units_sold, pending_orders}`.
 10. **Storage.** Read only. The session closes with no commit. No notifier, charge, or ship.
@@ -461,14 +483,14 @@ The branch detail is in `flows/reporting.md`. This route does not write. It does
 3. **Request validation.** A non-integer `order_id` is 422 `VALIDATION_ERROR` before `get_order`. Nothing is written.
 4. **Load.** `get_order`. An id outside `1..9223372036854775807`, or a missing `orders` row, is 404 `NOT_FOUND` "Not found".
 5. **Access.** `require_order_access` allows the order's `provider_id` or `patient_id`. Another provider is 404 `NOT_FOUND`. The owning provider continues. A patient who owns the order never reaches this check.
-6. **Lines.** `order_audit` loads `order_lines` for that id, ordered by `order_lines.id`. `line_amounts(unit_price_cents, unit_cogs_cents, qty)` on the stored snapshot supplies `line_total_cents`, `line_cogs_cents`, and `line_margin_cents`. The live catalog is not read.
+6. **Lines.** `order_audit` loads `order_lines` for that id, ordered by `order_lines.id`. Active lines (`removed_at` null) go in `lines`; soft-removed lines go in `removed_lines`. `line_amounts(unit_price_cents, unit_cogs_cents, qty)` on the stored snapshot supplies `line_total_cents`, `line_cogs_cents`, and `line_margin_cents`. The live catalog is not read. The audit UI labels `removed_lines` "Removed by patient".
 7. **Split.** `subtotal_cents`, `cogs_total_cents`, `fee_bps`, `platform_fee_cents`, `donation_bps`, `donation_cents`, and `provider_payout_cents` are the stored `orders` columns. `id` and `status` are copied from the order.
 8. **Ledger.** `ledger_entries` for that id, ordered by `ledger_entries.id`. Each row contributes `entry_type`, `amount_cents`, `created_at`, and `fund_id`. No rows, which is every unpaid order, yields `ledger: []`.
 9. **Fee check.** `recomputed_fee_matches` is `compute_fee(order.subtotal_cents, order.fee_bps) == order.platform_fee_cents`.
-10. **Donation check.** `donation_matches_rate` recomputes each line donation with `line_donation_cents` from the stored margin, `donation_bps`, and whether `fund_id` is set, and requires those amounts to sum to `order.donation_cents`.
+10. **Donation check.** `donation_matches_rate` recomputes each **active** line donation with `line_donation_cents` from the stored margin, `donation_bps`, and whether `fund_id` is set, and requires those amounts to sum to `order.donation_cents`. Soft-removed lines are excluded.
 11. **Split check.** `split_adds_up` is true when `subtotal_cents == cogs_total_cents + platform_fee_cents + donation_cents + provider_payout_cents` on the stored order columns.
-12. **Ledger check.** For status `paid`, `ledger_matches_split` is true when the four base entry types match the stored order columns and `research_donation` rows match the per-fund sums of positive line donations. A repeated entry type or fund is false. For any other status, it is true only when the ledger is empty.
-13. **Out.** HTTP 200 and `{id, status, lines, subtotal_cents, cogs_total_cents, fee_bps, platform_fee_cents, donation_bps, donation_cents, provider_payout_cents, ledger, recomputed_fee_matches, donation_matches_rate, split_adds_up, ledger_matches_split}`.
+12. **Ledger check.** For status `paid`, `ledger_matches_split` is true when the four base entry types match the stored order columns and `research_donation` rows match the per-fund sums of positive **active** line donations. A repeated entry type or fund is false. For any other status, it is true only when the ledger is empty.
+13. **Out.** HTTP 200 and `{id, status, lines, removed_lines, subtotal_cents, cogs_total_cents, fee_bps, platform_fee_cents, donation_bps, donation_cents, provider_payout_cents, ledger, recomputed_fee_matches, donation_matches_rate, split_adds_up, ledger_matches_split}`.
 14. **Storage.** Read only. The session closes with no commit.
 
 ## GET /admin/products
@@ -493,6 +515,6 @@ The branch detail is in `flows/admin-products.md`. `api/admin.put_admin_product`
 
 ## Split and line amounts
 
-`compute_split` runs only when `validate_order` calls it. That happens on `PUT /provider/products/{product_id}` after the product is found (donation off), on `POST /orders/preview`, and on `POST /orders` because `create_order` calls `preview_order`. Preview and create pass `donation_bps` from body `donate`. Pay does not call `validate_order`. `order_audit` does not call `validate_order` or `compute_split`. It calls `compute_fee(subtotal_cents, fee_bps)` and sets `recomputed_fee_matches` when that equals the stored `platform_fee_cents`. It sets `donation_matches_rate` with `line_donation_cents`, `split_adds_up` from the four-way stored order columns, and `ledger_matches_split` from those columns, the line donations, and the loaded ledger rows. `backend/tests/test_money.py` also calls the money module directly.
+`compute_split` runs only when `validate_order` calls it. That happens on `PUT /provider/products/{product_id}` after the product is found (donation off), on `POST /orders/preview`, on `POST /orders` because `create_order` calls `preview_order`, and on `POST /orders/{id}/lines/{line_id}/remove` for the remaining active stored lines at the order's stored `fee_bps` / `donation_bps`. Preview and create pass `donation_bps` from body `donate`. Pay does not call `validate_order`. `order_audit` does not call `validate_order` or `compute_split`. It calls `compute_fee(subtotal_cents, fee_bps)` and sets `recomputed_fee_matches` when that equals the stored `platform_fee_cents`. It sets `donation_matches_rate` with `line_donation_cents` on **active** lines, `split_adds_up` from the four-way stored order columns, and `ledger_matches_split` from those columns, the active line donations, and the loaded ledger rows. `backend/tests/test_money.py` also calls the money module directly.
 
-`line_amounts` runs from `present_order` for every order JSON response, including the pay receipt, and from `order_audit` for each stored line. Those display amounts are `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. They are not stored on `order_lines`. Line `donation_cents` is stored. Ledger rows are not part of the order JSON. They are on the audit JSON, ordered by `ledger_entries.id`.
+`line_amounts` runs from `present_order` for every order JSON response, including the pay receipt, and from `order_audit` for each stored line (active and removed). Those display amounts are `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. They are not stored on `order_lines`. Line `donation_cents` is stored. Ledger rows are not part of the order JSON. They are on the audit JSON, ordered by `ledger_entries.id`.
