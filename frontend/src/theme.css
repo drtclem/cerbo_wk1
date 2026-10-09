@@ -190,6 +190,25 @@ img {
   margin-left: auto;
   display: flex;
   align-items: center;
+  gap: var(--space-3);
+}
+
+.login-screen {
+  max-width: 28rem;
+  margin: var(--space-7) auto 0;
+  padding: var(--space-6);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+}
+
+.login-screen h1 {
+  margin-bottom: var(--space-3);
+}
+
+.login-screen__note {
+  color: var(--ink-soft);
+  margin-bottom: var(--space-5);
 }
 
 .app-main {

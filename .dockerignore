@@ -1,0 +1,14 @@
+**/node_modules
+**/.venv
+**/*.db
+.git
+**/__pycache__
+**/.hypothesis
+docs/diagrams
+**/dist
+frontend/dist
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/coverage
+**/.DS_Store

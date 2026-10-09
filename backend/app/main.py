@@ -7,11 +7,13 @@ from fastapi.responses import JSONResponse
 
 from app.api.admin import router as admin_router
 from app.api.catalog import router as catalog_router
+from app.api.demo import router as demo_router
 from app.api.orders import router as orders_router
 from app.api.reporting import router as reporting_router
 from app.api.users import router as users_router
 from app.config import build_fulfillment, build_notifier, build_payment_provider
 from app.config import database_url as default_database_url
+from app.config import demo_mode as default_demo_mode
 from app.db import init_db, make_engine, make_session_factory
 from app.domain.money import PricingError
 from app.seams.auth import APIError
@@ -21,6 +23,7 @@ from app.seed import seed
 @asynccontextmanager
 async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
     engine = make_engine(application.state.database_url)
+    application.state.engine = engine
     try:
         init_db(engine)
         factory = make_session_factory(engine)
@@ -36,11 +39,15 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:
         engine.dispose()
 
 
-def create_app(database_url: str | None = None) -> FastAPI:
+def create_app(
+    database_url: str | None = None,
+    demo_mode: bool | None = None,
+) -> FastAPI:
     application = FastAPI(title="Cerbo supplement ordering", lifespan=_lifespan)
     application.state.database_url = (
         default_database_url if database_url is None else database_url
     )
+    application.state.demo_mode = default_demo_mode if demo_mode is None else demo_mode
     application.state.notifier = build_notifier()
     application.state.payment_provider = build_payment_provider()
     application.state.fulfillment = build_fulfillment()
@@ -96,6 +103,8 @@ def create_app(database_url: str | None = None) -> FastAPI:
     application.include_router(admin_router)
     application.include_router(orders_router)
     application.include_router(reporting_router)
+    if application.state.demo_mode:
+        application.include_router(demo_router)
     return application
 
 

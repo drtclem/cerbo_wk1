@@ -51,11 +51,30 @@ npm run lint
 npm run build
 ```
 
+## Run with Docker
+
+Build and run the single production image (API under `/api`, SPA at `/`, demo reset enabled):
+
+```bash
+docker build -t cerbo .
+docker run -p 8080:8080 -e DEMO_MODE=true cerbo
+```
+
+Open http://localhost:8080. Click **Log in** to reset the shared demo database and sign in as Dr. Maya Patel. Use **Log out** when you are done (that resets the database again).
+
+Local two-process development is unchanged: `uvicorn app.main:app` on port 8000 and `npm run dev` on port 5173. Without `DEMO_MODE=true`, `POST /demo/reset` is not registered; the UI still logs in and out, and ignores a 404 from that endpoint.
+
+## Live demo
+
+URL TBD.
+
+Auth is fake (a role switcher, not real login). All seed data and orders are made up. Logging out calls the demo reset endpoint and clears the shared demo database for everyone using that deployment.
+
 ## Demo walkthrough
 
-The amounts below assume a fresh database. To reset, stop the API, delete `backend/cerbo.db`, and start it again (it re-seeds on startup).
+Prefer a fresh database. With Docker (`DEMO_MODE=true`), **Log in** and **Log out** each reset the data. With the local API, delete `backend/cerbo.db` and restart, or start with `DEMO_MODE=true`.
 
-Open http://localhost:5173. The header **Role** menu lists the seed users:
+Open http://localhost:8080 (Docker) or http://localhost:5173 (dev). Click **Log in**. You start as **Dr. Maya Patel**. The header **Viewing as** menu lists the seed users (switching roles does not reset data):
 
 | Name | Role |
 |---|---|
@@ -66,15 +85,16 @@ Open http://localhost:5173. The header **Role** menu lists the seed users:
 
 Dr. Patel's catalog is already enabled at the suggested prices. This walkthrough uses Dr. Maya Patel and Jane Doe.
 
-1. Select **Dr. Maya Patel (provider)**. Open **New order**.
+1. Open **New order**.
 2. Choose patient **Jane Doe**. Add **Magnesium Glycinate** and set Qty to `2` (unit price stays `$24.00`). Add **Vitamin D3 + K2** and leave Qty at `1` (unit price `$18.00`).
 3. The live preview should show subtotal **$66.00**, COGS **$33.00**, platform fee **$0.50**, and you receive **$32.50**. Click **Continue**, then **Confirm**.
 4. The created screen shows a patient link such as `/orders/1`.
-5. Switch **Role** to **Jane Doe (patient)**. The app opens **My orders**. Open the new order.
+5. Switch **Viewing as** to **Jane Doe (patient)**. The app opens **My orders**. Open the new order.
 6. Set **Payment method** to **Decline test card** and click **Pay**. The page shows "Payment was declined." and the status stays **Pending payment**.
 7. Set **Payment method** to **OK test card** and click **Pay**. The page becomes a receipt with status **Paid** and total **$66.00**.
-8. Switch **Role** back to **Dr. Maya Patel (provider)** and open **Dashboard**. GMV is **$66.00**, platform fees **$0.50**, and earnings **$32.50**. Paid orders lists Jane Doe with those same amounts. Units sold are Magnesium Glycinate **2** and Vitamin D3 + K2 **1**. Pending orders is empty.
+8. Switch **Viewing as** back to **Dr. Maya Patel (provider)** and open **Dashboard**. GMV is **$66.00**, platform fees **$0.50**, and earnings **$32.50**. Paid orders lists Jane Doe with those same amounts. Units sold are Magnesium Glycinate **2** and Vitamin D3 + K2 **1**. Pending orders is empty.
 9. Click **Audit** on that paid order. Lines, the split, and the ledger (patient payment $66.00, Cerbo COGS $33.00, Cerbo fee $0.50, provider payable $32.50) match. All three integrity checks are marked ✓: fee matches formula, split adds up, and ledger matches split.
+10. Click **Log out**. The login screen returns and the database is reset for the next visitor.
 
 ## What's stubbed
 

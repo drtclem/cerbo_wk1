@@ -3,6 +3,12 @@ import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from
 
 import { ApiError, apiGet } from "./api/client.ts";
 import { RoleSwitcher, type User } from "./components/RoleSwitcher.tsx";
+import {
+  STORAGE_KEY,
+  demoLoginUserId,
+  postDemoReset,
+  storedUserId,
+} from "./lib/demo.ts";
 import { homeFor, navFor } from "./nav.ts";
 import { AdminProductsPage } from "./pages/AdminProductsPage.tsx";
 import { AuditRoute } from "./pages/AuditPage.tsx";
@@ -11,21 +17,6 @@ import { NewOrderPage } from "./pages/NewOrderPage.tsx";
 import { PatientOrderRoute } from "./pages/PatientOrderPage.tsx";
 import { PatientOrdersPage } from "./pages/PatientOrdersPage.tsx";
 import { ProductsPage } from "./pages/ProductsPage.tsx";
-
-const STORAGE_KEY = "cerbo.userId";
-
-function chosenUserId(users: User[]): number {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  const stored = raw !== null && /^\d+$/.test(raw) ? Number(raw) : null;
-  if (stored !== null && users.some((user) => user.id === stored)) {
-    return stored;
-  }
-  const first = users[0];
-  if (first === undefined) {
-    throw new Error("No users");
-  }
-  return first.id;
-}
 
 function errorText(error: unknown): string {
   if (error instanceof ApiError) {
@@ -42,6 +33,8 @@ export default function App() {
   const [userId, setUserId] = useState<number | null>(null);
   const [me, setMe] = useState<User | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [booting, setBooting] = useState(true);
+  const [authBusy, setAuthBusy] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -52,15 +45,16 @@ export default function App() {
         if (cancelled) {
           return;
         }
-        const id = chosenUserId(listed);
-        localStorage.setItem(STORAGE_KEY, String(id));
+        const id = storedUserId(listed, localStorage.getItem(STORAGE_KEY));
         setError(null);
         setUsers(listed);
         setUserId(id);
+        setBooting(false);
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
           setError(errorText(cause));
+          setBooting(false);
         }
       });
     return () => {
@@ -103,6 +97,90 @@ export default function App() {
     }
   }
 
+  async function logIn() {
+    if (authBusy) {
+      return;
+    }
+    setAuthBusy(true);
+    setError(null);
+    try {
+      await postDemoReset();
+      const listed = await apiGet<User[]>("/users", null);
+      const id = demoLoginUserId(listed);
+      localStorage.setItem(STORAGE_KEY, String(id));
+      setUsers(listed);
+      setUserId(id);
+      const provider = listed.find((user) => user.id === id);
+      if (provider !== undefined) {
+        navigate(homeFor(provider.role));
+      }
+    } catch (cause: unknown) {
+      setError(errorText(cause));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function logOut() {
+    if (authBusy) {
+      return;
+    }
+    setAuthBusy(true);
+    setError(null);
+    try {
+      await postDemoReset();
+      localStorage.removeItem(STORAGE_KEY);
+      setUserId(null);
+      setMe(null);
+      const listed = await apiGet<User[]>("/users", null);
+      setUsers(listed);
+      navigate("/");
+    } catch (cause: unknown) {
+      setError(errorText(cause));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  if (booting) {
+    return (
+      <div className="app-shell">
+        <main className="app-main">
+          <p>Loading…</p>
+        </main>
+      </div>
+    );
+  }
+
+  if (userId === null) {
+    return (
+      <div className="app-shell">
+        <header className="app-topbar">
+          <Link to="/" className="app-brand">
+            <span className="app-brand__name">Cerbo</span>
+            <span className="app-brand__product">Supplements</span>
+          </Link>
+        </header>
+        {error !== null ? (
+          <p className="app-banner-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <main className="app-main">
+          <div className="login-screen">
+            <h1>Cerbo Supplements</h1>
+            <p className="login-screen__note">
+              This is a demo. Everything here is made up and resets when you log out.
+            </p>
+            <button type="button" disabled={authBusy} onClick={() => void logIn()}>
+              Log in
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   const links = me === null ? [] : navFor(me.role);
 
   return (
@@ -120,9 +198,17 @@ export default function App() {
           ))}
         </nav>
         <div className="app-topbar__demo">
-          {users !== null && userId !== null ? (
+          {users !== null ? (
             <RoleSwitcher users={users} userId={userId} onChange={selectUser} />
           ) : null}
+          <button
+            type="button"
+            className="secondary"
+            disabled={authBusy}
+            onClick={() => void logOut()}
+          >
+            Log out
+          </button>
         </div>
       </header>
       {error !== null ? (
