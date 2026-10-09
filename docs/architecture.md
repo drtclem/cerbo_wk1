@@ -1,7 +1,8 @@
 # Architecture: In-House Supplement Ordering
 
-_Last updated: 2026-10-05 · Owner: Taylor Clements · Status: Approved for build_
+_Last updated: 2026-10-09 · Owner: Taylor Clements · Status: Approved for build_
 _What and why: [`prd.md`](prd.md). Decision rationale: [`decisions.md`](decisions.md). Changes to this file need owner approval._
+_Updated for D12 (research donations) and D13 (patient line removal)._
 
 ---
 
@@ -33,7 +34,7 @@ cerbo_wk1/
 │   │   │   └── money.py         # PURE: fee, split, pricing guardrails
 │   │   ├── services/            # business operations (use domain + db + seams)
 │   │   │   ├── catalog.py
-│   │   │   ├── orders.py        # preview, create, cancel, get
+│   │   │   ├── orders.py        # preview, create, cancel, get, remove line
 │   │   │   ├── payments.py      # the pay transaction
 │   │   │   ├── reporting.py     # dashboard, audit
 │   │   │   └── admin.py
@@ -61,8 +62,8 @@ cerbo_wk1/
 1. **No floats in the money path.** Money is `int` cents everywhere: Python, SQL columns, JSON, TypeScript. The fee rate is `int` basis points. No `float()`, `Decimal` round-trips, or `* 100` on a parsed number.
 2. **`domain/money.py` is pure.** No imports from FastAPI, SQLAlchemy, `app.services`, or `app.seams`. It is the **only** place the fee, split, and pricing guardrails are computed.
 3. **The frontend never computes the split.** It calls `POST /orders/preview`. It only parses and formats amounts.
-4. **Orders are snapshots.** Order lines copy `unit_price`, `unit_cogs`, and product name; orders copy `fee_bps`. Nothing reads the live catalog to compute an existing order's money.
-5. **Append-only after payment.** No code path updates or deletes a paid order, its lines, or ledger entries.
+4. **Orders are snapshots.** Order lines copy `unit_price`, `unit_cogs`, product name, dosing/note, and research-fund fields; orders copy `fee_bps` and `donation_bps`. Nothing reads the live catalog to compute an existing order's money (including after a patient removes a line — recompute from remaining snapshots + stored rates).
+5. **Append-only after payment.** No code path updates or deletes a paid order, its lines, or ledger entries. Before payment, a patient may soft-remove a line (`removed_at`); the row stays for audit.
 6. **Every endpoint checks role and ownership** via `seams/auth.py`.
 7. **Stubs are chosen only in `config.py`.** Services receive seams through FastAPI dependencies, never by importing a fake directly.
 8. **Routers are thin.** Business logic lives in `services/`, money logic in `domain/money.py`.
@@ -71,6 +72,8 @@ cerbo_wk1/
 
 ```python
 FEE_BPS_DEFAULT = 75
+DONATION_BPS_OFF = 0
+DONATION_BPS_ON = 500   # 5% of per-line margin when the provider opts in (D12)
 
 @dataclass(frozen=True)
 class LineInput:
@@ -78,6 +81,7 @@ class LineInput:
     qty: int
     unit_price_cents: int
     unit_cogs_cents: int
+    has_research_fund: bool = False
 
 @dataclass(frozen=True)
 class LineSplit:
@@ -87,7 +91,8 @@ class LineSplit:
     unit_cogs_cents: int
     line_total_cents: int    # unit_price × qty
     line_cogs_cents: int     # unit_cogs × qty
-    line_margin_cents: int   # line_total − line_cogs (pre-fee; display only)
+    line_margin_cents: int   # line_total − line_cogs
+    donation_cents: int      # floor(margin × donation_bps / 10000) if fund else 0
 
 @dataclass(frozen=True)
 class OrderSplit:
@@ -96,23 +101,25 @@ class OrderSplit:
     cogs_total_cents: int
     fee_bps: int
     platform_fee_cents: int
+    donation_bps: int
+    donation_cents: int
     provider_payout_cents: int
 
 def compute_fee(subtotal_cents: int, fee_bps: int) -> int:
-    # Round half up, integer only. subtotal_cents >= 0, so // is safe.
+    # Round half up, integer only. Fee is once on the full subtotal.
     return (subtotal_cents * fee_bps + 5_000) // 10_000
 
-def compute_split(lines: Sequence[LineInput], fee_bps: int) -> OrderSplit: ...
-def validate_order(lines: Sequence[LineInput], fee_bps: int) -> OrderSplit:
+def compute_split(lines, fee_bps, donation_bps=DONATION_BPS_OFF) -> OrderSplit: ...
+def validate_order(lines, fee_bps, donation_bps=DONATION_BPS_OFF) -> OrderSplit:
     """compute_split + guardrails. Raises PricingError(code, detail, line_index | None)."""
 ```
 
-**Payout is the remainder:** `provider_payout = subtotal − cogs_total − platform_fee`.
+**Four-way split (D12):** `provider_payout = subtotal − cogs_total − platform_fee − donation`. Donation is paid by the provider out of margin; the patient's price and the 75 bps fee (still on the full subtotal) are unchanged.
 
 **Validation order** (first failure wins, reported with line index where applicable):
-`EMPTY_ORDER` → `INVALID_QUANTITY` (qty < 1) → `INVALID_PRICE` (price ≤ 0 or COGS ≤ 0) → `LINE_BELOW_COGS` → `NEGATIVE_PAYOUT`.
+`INVALID_DONATION_BPS` → `EMPTY_ORDER` → `INVALID_QUANTITY` → `INVALID_PRICE` → `LINE_BELOW_COGS` → `DONATION_EXCEEDS_PAYOUT` (payout < 0 and donation > 0) or `NEGATIVE_PAYOUT`.
 
-**Property tests (Hypothesis):** for random valid inputs, the invariant `subtotal == cogs_total + platform_fee + provider_payout` holds, and `platform_fee == compute_fee(subtotal, fee_bps)`.
+**Property tests (Hypothesis):** for random valid inputs, `subtotal == cogs + fee + donation + payout`, fee matches `compute_fee`, and donation ≤ 5% of total margin.
 
 ## 5. Data model
 
@@ -124,6 +131,10 @@ users
   name            TEXT NOT NULL
   role            TEXT NOT NULL CHECK (role IN ('provider','patient','admin'))
 
+research_funds                             -- example orgs for D12 (demo; no real disbursement)
+  id              INTEGER PK
+  name, url, description   TEXT NOT NULL
+
 products                                   -- Cerbo's catalog + stock (admin-owned)
   id                       INTEGER PK
   sku                      TEXT UNIQUE NOT NULL
@@ -131,6 +142,8 @@ products                                   -- Cerbo's catalog + stock (admin-own
   unit_cogs_cents          INTEGER NOT NULL CHECK (unit_cogs_cents > 0)
   suggested_price_cents    INTEGER NOT NULL CHECK (suggested_price_cents > 0)
   stock_qty                INTEGER NOT NULL CHECK (stock_qty >= 0)
+  default_dosing           TEXT NOT NULL
+  research_fund_id         INTEGER FK research_funds NULL
 
 provider_products                          -- each provider's offered list (provider-owned)
   provider_id              INTEGER FK users  ┐ PK
@@ -144,13 +157,15 @@ orders
   patient_id               INTEGER FK users NOT NULL
   status                   TEXT NOT NULL CHECK (status IN ('pending_payment','paid','cancelled'))
   fee_bps                  INTEGER NOT NULL CHECK (fee_bps >= 0)
+  donation_bps             INTEGER NOT NULL CHECK (donation_bps IN (0, 500))
   subtotal_cents           INTEGER NOT NULL CHECK (subtotal_cents > 0)
   cogs_total_cents         INTEGER NOT NULL CHECK (cogs_total_cents > 0)
   platform_fee_cents       INTEGER NOT NULL CHECK (platform_fee_cents >= 0)
+  donation_cents           INTEGER NOT NULL CHECK (donation_cents >= 0)
   provider_payout_cents    INTEGER NOT NULL CHECK (provider_payout_cents >= 0)
-  payment_ref              TEXT NULL          -- from PaymentProvider on success
-  created_at, paid_at, cancelled_at          -- ISO-8601 UTC text; paid_at/cancelled_at nullable
-  CHECK (subtotal_cents = cogs_total_cents + platform_fee_cents + provider_payout_cents)
+  payment_ref              TEXT NULL
+  created_at, paid_at, cancelled_at
+  CHECK (subtotal = cogs + fee + donation + payout)
 
 order_lines
   id                       INTEGER PK
@@ -158,21 +173,29 @@ order_lines
   product_id               INTEGER FK products NOT NULL
   product_name             TEXT NOT NULL      -- snapshot
   qty                      INTEGER NOT NULL CHECK (qty >= 1)
-  unit_price_cents         INTEGER NOT NULL CHECK (unit_price_cents > 0)
-  unit_cogs_cents          INTEGER NOT NULL CHECK (unit_cogs_cents > 0)
+  unit_price_cents, unit_cogs_cents  INTEGER NOT NULL
+  dosing                   TEXT NOT NULL
+  note                     TEXT NULL
+  donation_cents           INTEGER NOT NULL
+  fund_id, fund_name, fund_url       -- fund snapshot (nullable when no fund)
+  removed_at               TEXT NULL         -- D13: soft-removed by patient
   CHECK (unit_price_cents >= unit_cogs_cents)
 
 ledger_entries                             -- append-only record of money movement
   id                       INTEGER PK
   order_id                 INTEGER FK orders NOT NULL
   entry_type               TEXT NOT NULL CHECK (entry_type IN
-                             ('patient_payment','cerbo_cogs','cerbo_fee','provider_payable'))
+                             ('patient_payment','cerbo_cogs','cerbo_fee',
+                              'provider_payable','research_donation'))
   amount_cents             INTEGER NOT NULL CHECK (amount_cents >= 0)
   created_at               TEXT NOT NULL
-  UNIQUE (order_id, entry_type)            -- backstop against double-writes (D5)
+  fund_id                  INTEGER FK research_funds NULL
+                             -- required iff entry_type = research_donation
+  -- Partial unique indexes (D12): one non-donation row per (order, entry_type);
+  -- one research_donation row per (order, fund_id).
 ```
 
-**Ledger convention:** amounts are non-negative. For each paid order: `patient_payment = subtotal` (money in), and `cerbo_cogs + cerbo_fee + provider_payable = patient_payment` (where it went). Future refunds and payouts would add new entry types (e.g. `refund`, `provider_payout_settled`) rather than editing rows.
+**Ledger convention:** amounts are non-negative. For each paid order: `patient_payment = subtotal`, and `cerbo_cogs + cerbo_fee + research_donation(s) + provider_payable = patient_payment`. One `research_donation` row per fund with a donation > 0. Active lines only (D13): stock, ledger, and units sold ignore `removed_at IS NOT NULL`.
 
 **Note:** the DB-level `CHECK` on the order invariant and `provider_payout_cents >= 0` duplicate the money module's guarantees on purpose. If application code ever computes a bad split, the write fails loudly.
 
@@ -180,14 +203,15 @@ ledger_entries                             -- append-only record of money moveme
 
 ### Seed data
 - Users: **Dr. Maya Patel** (provider), **Jane Doe** and **Sam Lee** (patients), **Cerbo Admin** (admin).
-- Products:
+- Research funds (D12): American Heart Association research programs; ASBMR Fund for Research and Education; Crohn's & Colitis Foundation research; American Migraine Foundation.
+- Products (each mapped to one fund):
 
-| SKU | Name | COGS | Suggested | Stock |
-|---|---|---|---|---|
-| MAG-GLY | Magnesium Glycinate | $12.00 | $24.00 | 50 |
-| D3-K2 | Vitamin D3 + K2 | $9.00 | $18.00 | 40 |
-| OMEGA3 | Omega-3 Fish Oil | $18.50 | $36.00 | 25 |
-| PROBIO50 | Probiotic 50B | $21.00 | $42.00 | **1** (to demo out-of-stock and the last-unit race) |
+| SKU | Name | COGS | Suggested | Stock | Fund |
+|---|---|---|---|---|---|
+| MAG-GLY | Magnesium Glycinate | $12.00 | $24.00 | 50 | American Migraine Foundation |
+| D3-K2 | Vitamin D3 + K2 | $9.00 | $18.00 | 40 | ASBMR |
+| OMEGA3 | Omega-3 Fish Oil | $18.50 | $36.00 | 25 | AHA research programs |
+| PROBIO50 | Probiotic 50B | $21.00 | $42.00 | **1** | Crohn's & Colitis Foundation |
 
 - Dr. Patel has all four enabled at suggested prices.
 
@@ -203,20 +227,23 @@ All amounts are integer cents. Auth via header `X-User-Id` (D10). Errors return 
 | `GET /products` | provider, admin | Catalog with stock |
 | `GET /provider/products` | provider | Own product list (enabled, default price, stock) |
 | `PUT /provider/products/{product_id}` | provider | Set enabled / default price (validated at qty 1) |
-| `POST /orders/preview` | provider | Validate + compute split; **no writes** |
-| `POST /orders` | provider | Create order (snapshot); notify; return order + patient link |
-| `GET /orders/{id}` | owning provider or patient | Order with lines and split |
+| `POST /orders/preview` | provider | Validate + compute split (`donate: bool`); **no writes** |
+| `POST /orders` | provider | Create order (snapshot, `donate: bool`); notify; return order + patient link |
+| `GET /orders/{id}` | owning provider or patient | Order with active `lines`, `removed_lines`, and split |
 | `POST /orders/{id}/cancel` | owning provider | Pending → cancelled |
-| `POST /orders/{id}/pay` | owning patient | Pay; idempotent (§7) |
+| `POST /orders/{id}/lines/{line_id}/remove` | owning patient | Soft-remove line while pending (D13); recompute split via `money.py` from remaining stored prices + stored `fee_bps`/`donation_bps` |
+| `POST /orders/{id}/pay` | owning patient | Pay; idempotent (§7); active lines only for stock/ledger |
 | `GET /patient/orders` | patient | Own orders |
-| `GET /provider/dashboard` | provider | Totals, paid orders, units per product, pending orders |
-| `GET /orders/{id}/audit` | owning provider | Lines, split, ledger, and three integrity flags: `recomputed_fee_matches` (fee = formula), `split_adds_up` (subtotal = COGS + fee + payout), `ledger_matches_split` (paid: exactly the 4 ledger rows, each equal to the stored split; unpaid: empty ledger) |
+| `GET /provider/dashboard` | provider | GMV, fees, **donated to research**, earnings; paid orders; units (active lines); pending |
+| `GET /orders/{id}/audit` | owning provider | Active lines, `removed_lines` ("Removed by patient"), split, ledger, four integrity flags: `recomputed_fee_matches`, `donation_matches_rate`, `split_adds_up` (subtotal = COGS + fee + donation + payout), `ledger_matches_split` (including per-fund `research_donation` rows) |
 | `GET /admin/products` | admin | Stock + COGS |
 | `PUT /admin/products/{id}` | admin | Set stock (≥ 0) and/or COGS (> 0) |
 
-**Status codes:** 401 missing/unknown user · 403 wrong role · **404** for orders the user doesn't own (don't reveal existence) · 422 pricing/validation errors · 409 `OUT_OF_STOCK`, `ORDER_NOT_PAYABLE` (cancelled), `ORDER_NOT_CANCELLABLE` · 402 `PAYMENT_DECLINED`.
+**Status codes:** 401 missing/unknown user · 403 wrong role · **404** for orders/lines the user doesn't own (don't reveal existence) · 422 pricing/validation errors · 409 `OUT_OF_STOCK`, `ORDER_NOT_PAYABLE`, `ORDER_NOT_CANCELLABLE`, `ORDER_NOT_REMOVABLE`, `LAST_LINE` · 402 `PAYMENT_DECLINED`.
 
 **Order creation also checks:** the patient exists with role `patient`; every product is enabled for this provider (`PRODUCT_UNAVAILABLE`). Stock is **not** checked at creation (it's shown in the UI and enforced at payment, D6).
+
+**Line removal (D13):** at least one active line must remain (`LAST_LINE`). Conditional update on `status = pending_payment` so remove-vs-pay has exactly one consistent winner; charge equals the final stored subtotal.
 
 **Pay request:** `{"payment_method": "fake_card_ok" | "fake_card_decline"}`.
 
@@ -241,14 +268,14 @@ sequenceDiagram
   end
   API->>DB: UPDATE orders SET status='paid' WHERE id=? AND status='pending_payment'
   Note over API,DB: 0 rows → another request won; rollback, return its receipt
-  API->>DB: per line: UPDATE products SET stock_qty=stock_qty-? WHERE id=? AND stock_qty>=?
-  Note over API,DB: any 0 rows → ROLLBACK, 409 OUT_OF_STOCK (nothing charged)
-  API->>Pay: charge(subtotal, idempotency_key=order_id, payment_method)
+  API->>DB: per active line: UPDATE products SET stock_qty=stock_qty-? WHERE id=? AND stock_qty>=?
+  Note over API,DB: any 0 rows → ROLLBACK, 409 OUT_OF_STOCK (nothing charged); removed_at lines skipped
+  API->>Pay: charge(stored subtotal, idempotency_key=order_id, payment_method)
   alt declined
     API->>DB: ROLLBACK
     API-->>P: 402 PAYMENT_DECLINED (order still pending)
   end
-  API->>DB: set payment_ref, paid_at; INSERT 4 ledger_entries
+  API->>DB: set payment_ref, paid_at; INSERT ledger rows (4 base + research_donation per fund)
   API->>DB: COMMIT
   API->>F: ship(order)  (after commit; failure is logged, not fatal)
   API-->>P: 200 receipt
@@ -286,8 +313,9 @@ class FakePaymentProvider:
 ## 9. Frontend
 
 - **Role switcher** in the header (from `GET /users`); the selected user ID is sent as `X-User-Id` on every request.
-- **Pages:** Provider: Products · New order (builder → review & confirm → created, with patient link) · Dashboard · Order audit. Patient: My orders · Order & pay · Receipt. Admin: Stock & COGS.
-- **Live preview:** the order builder calls `POST /orders/preview` (debounced ~300 ms) and renders the returned split; errors appear inline on the offending line.
+- **Pages:** Provider: Products · New order (builder with donate switch → review & confirm → created, with patient link) · Dashboard · Order audit (includes removed lines). Patient: My orders · Order & pay (can remove lines while unpaid) · Receipt. Admin: Stock & COGS.
+- **Live preview:** the order builder calls `POST /orders/preview` (debounced ~300 ms, `donate` flag) and renders the returned four-way split; errors appear inline on the offending line.
+- **Patient remove:** inline confirm (not a browser dialog); totals refresh from the API response. Patient UI never shows donation amounts.
 - **`lib/money.ts`:** `parseDollarsToCents("19.99") → 1999` via string parsing (reject more than 2 decimals, negatives, and non-numeric input); `formatCents(1999) → "$19.99"`. Vitest covers both.
 - **Theme (`theme.css`):** Pico variables overridden with Cerbo tokens: primary `#1570ef` (hover `#175cd3`, tint `#eff8ff`), accent `#D70073` used only for the "You receive" figure, text `#101828`/`#667085`, borders `#eaecf0`, Inter font, 8px radius.
 

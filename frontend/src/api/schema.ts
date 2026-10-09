@@ -242,6 +242,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orders/{order_id}/lines/{line_id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Remove Order Line */
+        post: operations["post_remove_order_line_orders__order_id__lines__line_id__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/provider/dashboard": {
         parameters: {
             query?: never;
@@ -319,6 +336,8 @@ export interface components {
         };
         /** AuditLineResponse */
         AuditLineResponse: {
+            /** Id */
+            id: number;
             /** Product Id */
             product_id: number;
             /** Product Name */
@@ -343,6 +362,8 @@ export interface components {
             fund_name: string | null;
             /** Fund Url */
             fund_url: string | null;
+            /** Removed At */
+            removed_at: string | null;
         };
         /** AuditResponse */
         AuditResponse: {
@@ -356,6 +377,8 @@ export interface components {
             paid_at: string | null;
             /** Lines */
             lines: components["schemas"]["AuditLineResponse"][];
+            /** Removed Lines */
+            removed_lines: components["schemas"]["AuditLineResponse"][];
             /** Subtotal Cents */
             subtotal_cents: number;
             /** Cogs Total Cents */
@@ -447,6 +470,8 @@ export interface components {
         };
         /** OrderLineResponse */
         OrderLineResponse: {
+            /** Id */
+            id: number;
             /** Product Id */
             product_id: number;
             /** Product Name */
@@ -477,6 +502,8 @@ export interface components {
             fund_url: string | null;
             /** Fund Description */
             fund_description: string | null;
+            /** Removed At */
+            removed_at: string | null;
         };
         /** OrderResponse */
         OrderResponse: {
@@ -500,6 +527,8 @@ export interface components {
             payment_ref: string | null;
             /** Lines */
             lines: components["schemas"]["OrderLineResponse"][];
+            /** Removed Lines */
+            removed_lines: components["schemas"]["OrderLineResponse"][];
             /** Subtotal Cents */
             subtotal_cents: number;
             /** Cogs Total Cents */
@@ -554,6 +583,8 @@ export interface components {
             patient_id: number;
             /** Patient Name */
             patient_name: string;
+            /** Audit Link */
+            audit_link: string;
         };
         /** PreviewLineRequest */
         PreviewLineRequest: {
@@ -1111,6 +1142,40 @@ export interface operations {
                 "application/json": components["schemas"]["PayRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_remove_order_line_orders__order_id__lines__line_id__remove_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-user-id"?: string | null;
+            };
+            path: {
+                order_id: number;
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

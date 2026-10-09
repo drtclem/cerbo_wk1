@@ -58,13 +58,14 @@ _PAID_ORDER_KEYS = {
     "audit_link",
 }
 _UNIT_KEYS = {"product_id", "product_name", "qty"}
-_PENDING_KEYS = {"id", "created_at", "patient_id", "patient_name"}
+_PENDING_KEYS = {"id", "created_at", "patient_id", "patient_name", "audit_link"}
 _AUDIT_KEYS = {
     "id",
     "status",
     "payment_ref",
     "paid_at",
     "lines",
+    "removed_lines",
     "subtotal_cents",
     "cogs_total_cents",
     "fee_bps",
@@ -79,6 +80,7 @@ _AUDIT_KEYS = {
     "ledger_matches_split",
 }
 _LINE_KEYS = {
+    "id",
     "product_id",
     "product_name",
     "qty",
@@ -91,6 +93,7 @@ _LINE_KEYS = {
     "fund_id",
     "fund_name",
     "fund_url",
+    "removed_at",
 }
 _LEDGER_KEYS = {"entry_type", "amount_cents", "created_at", "fund_id"}
 _LEDGER_TYPES = (
@@ -685,6 +688,8 @@ def _assert_pending_item(
     patient_id = _require_int(stored["patient_id"])
     assert _require_int(item["patient_id"]) == patient_id
     assert item["patient_name"] == names[patient_id]
+    order_id = _require_int(stored["id"])
+    assert item["audit_link"] == f"/orders/{order_id}/audit"
 
 
 def _assert_dashboard(

@@ -13,6 +13,7 @@ import {
   SPLIT_ADDS_UP_LABEL,
   feeMatchesLabel,
 } from "../lib/integrity.ts";
+import { REMOVED_BY_PATIENT_LABEL } from "../lib/removeLine.ts";
 
 type Audit = components["schemas"]["AuditResponse"];
 type AuditLine = components["schemas"]["AuditLineResponse"];
@@ -167,10 +168,31 @@ function AuditPage({ userId }: { userId: number }) {
               </tr>
             </thead>
             <tbody>
-              {audit.lines.map((line, index) => (
-                <tr key={`${line.product_id}-${index}`}>
+              {audit.lines.map((line) => (
+                <tr key={line.id}>
                   <td className="cell-title">
                     {line.product_name}
+                    {line.fund_name !== null ? (
+                      <div className="muted">{line.fund_name}</div>
+                    ) : null}
+                  </td>
+                  <td className="num">{line.qty}</td>
+                  <td className="num">
+                    <Money cents={line.unit_price_cents} />
+                  </td>
+                  <td className="num">
+                    <Money cents={line.unit_cogs_cents} />
+                  </td>
+                  <td className="num">
+                    <Money cents={line.line_total_cents} />
+                  </td>
+                </tr>
+              ))}
+              {audit.removed_lines.map((line) => (
+                <tr key={line.id} className="line--removed">
+                  <td className="cell-title">
+                    <span className="line--removed__name">{line.product_name}</span>
+                    <div className="muted">{REMOVED_BY_PATIENT_LABEL}</div>
                     {line.fund_name !== null ? (
                       <div className="muted">{line.fund_name}</div>
                     ) : null}

@@ -14,6 +14,8 @@ from app.domain.money import (
     FEE_BPS_DEFAULT,
     LineInput,
     OrderSplit,
+    PricingError,
+    compute_split,
     line_amounts,
     validate_order,
 )
@@ -40,6 +42,22 @@ class OrderNotFound(Exception):
 
 class OrderNotCancellable(Exception):
     pass
+
+
+class OrderNotRemovable(Exception):
+    pass
+
+
+class LastLine(Exception):
+    pass
+
+
+class LineNotFound(Exception):
+    pass
+
+
+class LineNotRemovable(Exception):
+    """Removing the line would leave the provider with a negative payout."""
 
 
 @dataclass(frozen=True)
@@ -80,6 +98,7 @@ class PreviewResult:
 
 @dataclass(frozen=True)
 class OrderLineView:
+    id: int
     product_id: int
     product_name: str
     qty: int
@@ -95,6 +114,7 @@ class OrderLineView:
     fund_name: str | None
     fund_url: str | None
     fund_description: str | None
+    removed_at: str | None
 
 
 @dataclass(frozen=True)
@@ -109,6 +129,7 @@ class OrderView:
     cancelled_at: str | None
     payment_ref: str | None
     lines: tuple[OrderLineView, ...]
+    removed_lines: tuple[OrderLineView, ...]
     subtotal_cents: int
     cogs_total_cents: int
     fee_bps: int
@@ -236,9 +257,90 @@ def order_lines(session: Session, order_id: int) -> list[OrderLine]:
     )
 
 
+def active_order_lines(session: Session, order_id: int) -> list[OrderLine]:
+    return [line for line in order_lines(session, order_id) if line.removed_at is None]
+
+
 def present_order(session: Session, order: Order, lines: Sequence[OrderLine]) -> OrderView:
     """Read stored money. Line display amounts come from the snapshot, not the catalog."""
     return _present(session, order, lines)
+
+
+def remove_order_line(session: Session, order: Order, line_id: int) -> OrderView:
+    """Soft-remove one line and recompute the split from remaining snapshots."""
+    if not 1 <= line_id <= _SQLITE_MAX_INT:
+        raise LineNotFound
+
+    fresh = session.get(Order, order.id)
+    if fresh is None or fresh.status != "pending_payment":
+        session.rollback()
+        raise OrderNotRemovable
+
+    line = session.get(OrderLine, line_id)
+    if line is None or line.order_id != fresh.id:
+        session.rollback()
+        raise LineNotFound
+    if line.removed_at is not None:
+        session.rollback()
+        raise OrderNotRemovable
+
+    active = active_order_lines(session, fresh.id)
+    if len(active) <= 1:
+        session.rollback()
+        raise LastLine
+
+    removed_at = _utc_now()
+    marked = cast(
+        CursorResult[Any],
+        session.execute(
+            update(OrderLine)
+            .where(
+                OrderLine.id == line_id,
+                OrderLine.order_id == fresh.id,
+                OrderLine.removed_at.is_(None),
+            )
+            .values(removed_at=removed_at)
+            .execution_options(synchronize_session=False)
+        ),
+    )
+    if marked.rowcount != 1:
+        session.rollback()
+        raise OrderNotRemovable
+
+    remaining = [row for row in active if row.id != line_id]
+    try:
+        # Same guardrails as creation: the remaining lines must still pay out >= 0.
+        split = _validated_split_from_stored_lines(
+            remaining, fresh.fee_bps, fresh.donation_bps
+        )
+    except PricingError:
+        session.rollback()
+        raise LineNotRemovable from None
+    claimed = cast(
+        CursorResult[Any],
+        session.execute(
+            update(Order)
+            .where(Order.id == fresh.id, Order.status == "pending_payment")
+            .values(
+                subtotal_cents=split.subtotal_cents,
+                cogs_total_cents=split.cogs_total_cents,
+                platform_fee_cents=split.platform_fee_cents,
+                donation_cents=split.donation_cents,
+                provider_payout_cents=split.provider_payout_cents,
+            )
+            .execution_options(synchronize_session=False)
+        ),
+    )
+    if claimed.rowcount != 1:
+        session.rollback()
+        raise OrderNotRemovable
+
+    session.commit()
+    session.expire_all()
+    updated = session.get(Order, fresh.id)
+    if updated is None:
+        raise OrderNotRemovable
+    return present_order(session, updated, order_lines(session, updated.id))
 
 
 def list_patient_orders(session: Session, patient_id: int) -> list[Order]:
@@ -297,34 +399,74 @@ def _fund_descriptions(
     return {fund.id: fund.description for fund in funds}
 
 
-def _present(session: Session, order: Order, lines: Sequence[OrderLine]) -> OrderView:
-    descriptions = _fund_descriptions(session, lines)
-    presented: list[OrderLineView] = []
-    for line in lines:
-        line_total_cents, line_cogs_cents, line_margin_cents = line_amounts(
-            line.unit_price_cents, line.unit_cogs_cents, line.qty
+def _split_from_stored_lines(
+    lines: Sequence[OrderLine], fee_bps: int, donation_bps: int
+) -> OrderSplit:
+    inputs = [
+        LineInput(
+            product_id=line.product_id,
+            qty=line.qty,
+            unit_price_cents=line.unit_price_cents,
+            unit_cogs_cents=line.unit_cogs_cents,
+            has_research_fund=line.fund_id is not None,
         )
-        presented.append(
-            OrderLineView(
+        for line in lines
+    ]
+    return compute_split(inputs, fee_bps, donation_bps)
+
+
+def _validated_split_from_stored_lines(
+    lines: Sequence[OrderLine], fee_bps: int, donation_bps: int
+) -> OrderSplit:
+    return validate_order(
+        [
+            LineInput(
                 product_id=line.product_id,
-                product_name=line.product_name,
                 qty=line.qty,
                 unit_price_cents=line.unit_price_cents,
                 unit_cogs_cents=line.unit_cogs_cents,
-                line_total_cents=line_total_cents,
-                line_cogs_cents=line_cogs_cents,
-                line_margin_cents=line_margin_cents,
-                dosing=line.dosing,
-                note=line.note,
-                donation_cents=line.donation_cents,
-                fund_id=line.fund_id,
-                fund_name=line.fund_name,
-                fund_url=line.fund_url,
-                fund_description=(
-                    descriptions.get(line.fund_id) if line.fund_id is not None else None
-                ),
+                has_research_fund=line.fund_id is not None,
             )
-        )
+            for line in lines
+        ],
+        fee_bps,
+        donation_bps,
+    )
+
+
+def _line_view(
+    line: OrderLine, descriptions: dict[int, str]
+) -> OrderLineView:
+    line_total_cents, line_cogs_cents, line_margin_cents = line_amounts(
+        line.unit_price_cents, line.unit_cogs_cents, line.qty
+    )
+    return OrderLineView(
+        id=line.id,
+        product_id=line.product_id,
+        product_name=line.product_name,
+        qty=line.qty,
+        unit_price_cents=line.unit_price_cents,
+        unit_cogs_cents=line.unit_cogs_cents,
+        line_total_cents=line_total_cents,
+        line_cogs_cents=line_cogs_cents,
+        line_margin_cents=line_margin_cents,
+        dosing=line.dosing,
+        note=line.note,
+        donation_cents=line.donation_cents,
+        fund_id=line.fund_id,
+        fund_name=line.fund_name,
+        fund_url=line.fund_url,
+        fund_description=(
+            descriptions.get(line.fund_id) if line.fund_id is not None else None
+        ),
+        removed_at=line.removed_at,
+    )
+
+
+def _present(session: Session, order: Order, lines: Sequence[OrderLine]) -> OrderView:
+    descriptions = _fund_descriptions(session, lines)
+    active = [_line_view(line, descriptions) for line in lines if line.removed_at is None]
+    removed = [_line_view(line, descriptions) for line in lines if line.removed_at is not None]
     return OrderView(
         id=order.id,
         provider_id=order.provider_id,
@@ -335,7 +477,8 @@ def _present(session: Session, order: Order, lines: Sequence[OrderLine]) -> Orde
         paid_at=order.paid_at,
         cancelled_at=order.cancelled_at,
         payment_ref=order.payment_ref,
-        lines=tuple(presented),
+        lines=tuple(active),
+        removed_lines=tuple(removed),
         subtotal_cents=order.subtotal_cents,
         cogs_total_cents=order.cogs_total_cents,
         fee_bps=order.fee_bps,

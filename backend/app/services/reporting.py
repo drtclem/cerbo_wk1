@@ -40,6 +40,7 @@ class PendingOrderSummary:
     created_at: str
     patient_id: int
     patient_name: str
+    audit_link: str
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,7 @@ class Dashboard:
 
 @dataclass(frozen=True)
 class AuditLine:
+    id: int
     product_id: int
     product_name: str
     qty: int
@@ -67,6 +69,7 @@ class AuditLine:
     fund_id: int | None
     fund_name: str | None
     fund_url: str | None
+    removed_at: str | None
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,7 @@ class OrderAudit:
     payment_ref: str | None
     paid_at: str | None
     lines: tuple[AuditLine, ...]
+    removed_lines: tuple[AuditLine, ...]
     subtotal_cents: int
     cogs_total_cents: int
     fee_bps: int
@@ -131,12 +135,15 @@ def order_audit(session: Session, order: Order) -> OrderAudit:
             .order_by(LedgerEntry.id)
         )
     )
+    active = [line for line in lines if line.removed_at is None]
+    removed = [line for line in lines if line.removed_at is not None]
     return OrderAudit(
         id=order.id,
         status=order.status,
         payment_ref=order.payment_ref,
         paid_at=order.paid_at,
-        lines=tuple(_audit_line(line) for line in lines),
+        lines=tuple(_audit_line(line) for line in active),
+        removed_lines=tuple(_audit_line(line) for line in removed),
         subtotal_cents=order.subtotal_cents,
         cogs_total_cents=order.cogs_total_cents,
         fee_bps=order.fee_bps,
@@ -156,9 +163,9 @@ def order_audit(session: Session, order: Order) -> OrderAudit:
         recomputed_fee_matches=(
             compute_fee(order.subtotal_cents, order.fee_bps) == order.platform_fee_cents
         ),
-        donation_matches_rate=_donation_matches_rate(order, lines),
+        donation_matches_rate=_donation_matches_rate(order, active),
         split_adds_up=_split_adds_up(order),
-        ledger_matches_split=_ledger_matches_split(order, lines, ledger),
+        ledger_matches_split=_ledger_matches_split(order, active, ledger),
     )
 
 
@@ -224,6 +231,7 @@ def _pending_summary(order: Order, names: dict[int, str]) -> PendingOrderSummary
         created_at=order.created_at,
         patient_id=order.patient_id,
         patient_name=names[order.patient_id],
+        audit_link=f"/orders/{order.id}/audit",
     )
 
 
@@ -231,7 +239,11 @@ def _units_sold(session: Session, provider_id: int) -> list[UnitSold]:
     lines = session.execute(
         select(OrderLine)
         .join(Order, Order.id == OrderLine.order_id)
-        .where(Order.provider_id == provider_id, Order.status == "paid")
+        .where(
+            Order.provider_id == provider_id,
+            Order.status == "paid",
+            OrderLine.removed_at.is_(None),
+        )
         .order_by(OrderLine.id)
     ).scalars()
     qty_by_product: dict[int, int] = {}
@@ -317,6 +329,7 @@ def _audit_line(line: OrderLine) -> AuditLine:
         line.unit_price_cents, line.unit_cogs_cents, line.qty
     )
     return AuditLine(
+        id=line.id,
         product_id=line.product_id,
         product_name=line.product_name,
         qty=line.qty,
@@ -329,4 +342,5 @@ def _audit_line(line: OrderLine) -> AuditLine:
         fund_id=line.fund_id,
         fund_name=line.fund_name,
         fund_url=line.fund_url,
+        removed_at=line.removed_at,
     )

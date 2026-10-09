@@ -51,6 +51,7 @@ _ORDER_KEYS = {
     "cancelled_at",
     "payment_ref",
     "lines",
+    "removed_lines",
     "subtotal_cents",
     "cogs_total_cents",
     "fee_bps",
@@ -60,6 +61,7 @@ _ORDER_KEYS = {
     "provider_payout_cents",
 }
 _LINE_KEYS = {
+    "id",
     "product_id",
     "product_name",
     "qty",
@@ -75,6 +77,7 @@ _LINE_KEYS = {
     "fund_name",
     "fund_url",
     "fund_description",
+    "removed_at",
 }
 _STORED_LINE_KEYS = (
     "product_id",

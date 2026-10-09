@@ -137,6 +137,7 @@ class OrderLine(Base):
     )
     fund_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     fund_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    removed_at: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class LedgerEntry(Base):

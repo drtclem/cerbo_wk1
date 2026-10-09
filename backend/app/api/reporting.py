@@ -46,6 +46,7 @@ class PendingOrderResponse(BaseModel):
     created_at: str
     patient_id: int
     patient_name: str
+    audit_link: str
 
 
 class DashboardResponse(BaseModel):
@@ -59,6 +60,7 @@ class DashboardResponse(BaseModel):
 
 
 class AuditLineResponse(BaseModel):
+    id: int
     product_id: int
     product_name: str
     qty: int
@@ -71,6 +73,7 @@ class AuditLineResponse(BaseModel):
     fund_id: int | None
     fund_name: str | None
     fund_url: str | None
+    removed_at: str | None
 
 
 class AuditLedgerResponse(BaseModel):
@@ -86,6 +89,7 @@ class AuditResponse(BaseModel):
     payment_ref: str | None
     paid_at: str | None
     lines: list[AuditLineResponse]
+    removed_lines: list[AuditLineResponse]
     subtotal_cents: int
     cogs_total_cents: int
     fee_bps: int
@@ -128,6 +132,7 @@ def _pending_order(item: PendingOrderSummary) -> PendingOrderResponse:
         created_at=item.created_at,
         patient_id=item.patient_id,
         patient_name=item.patient_name,
+        audit_link=item.audit_link,
     )
 
 
@@ -145,6 +150,7 @@ def _dashboard(view: Dashboard) -> DashboardResponse:
 
 def _audit_line(line: AuditLine) -> AuditLineResponse:
     return AuditLineResponse(
+        id=line.id,
         product_id=line.product_id,
         product_name=line.product_name,
         qty=line.qty,
@@ -157,6 +163,7 @@ def _audit_line(line: AuditLine) -> AuditLineResponse:
         fund_id=line.fund_id,
         fund_name=line.fund_name,
         fund_url=line.fund_url,
+        removed_at=line.removed_at,
     )
 
 
@@ -176,6 +183,7 @@ def _audit(view: OrderAudit) -> AuditResponse:
         payment_ref=view.payment_ref,
         paid_at=view.paid_at,
         lines=[_audit_line(line) for line in view.lines],
+        removed_lines=[_audit_line(line) for line in view.removed_lines],
         subtotal_cents=view.subtotal_cents,
         cogs_total_cents=view.cogs_total_cents,
         fee_bps=view.fee_bps,

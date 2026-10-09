@@ -202,6 +202,7 @@ export function DashboardPage({ userId }: { userId: number }) {
                   <th>Patient</th>
                   <th>Date</th>
                   <th>Status</th>
+                  <th>Audit</th>
                   <th>
                     <span className="visually-hidden">Actions</span>
                   </th>
@@ -220,6 +221,9 @@ export function DashboardPage({ userId }: { userId: number }) {
                           <StatusPill status="pending_payment" />
                         </td>
                         <td>
+                          <Link to={order.audit_link}>Audit</Link>
+                        </td>
+                        <td>
                           <div className="btn-row">
                             <button
                               type="button"
@@ -235,7 +239,7 @@ export function DashboardPage({ userId }: { userId: number }) {
                       </tr>
                       {cancelError?.id === order.id ? (
                         <tr>
-                          <td colSpan={5}>
+                          <td colSpan={6}>
                             <InlineError message={cancelError.message} />
                           </td>
                         </tr>

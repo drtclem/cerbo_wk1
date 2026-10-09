@@ -14,9 +14,13 @@ from app.seams.payment_provider import PaymentProvider
 from app.services.orders import (
     CreateLine,
     InvalidPatient,
+    LastLine,
+    LineNotFound,
+    LineNotRemovable,
     OrderLineView,
     OrderNotCancellable,
     OrderNotFound,
+    OrderNotRemovable,
     OrderView,
     PreviewLine,
     PreviewResult,
@@ -28,6 +32,7 @@ from app.services.orders import (
     order_lines,
     present_order,
     preview_order,
+    remove_order_line,
 )
 from app.services.payments import OrderNotPayable, OutOfStock, PaymentDeclined, pay_order
 
@@ -205,6 +210,7 @@ class PayRequest(BaseModel):
 
 
 class OrderLineResponse(BaseModel):
+    id: int
     product_id: int
     product_name: str
     qty: int
@@ -220,6 +226,7 @@ class OrderLineResponse(BaseModel):
     fund_name: str | None
     fund_url: str | None
     fund_description: str | None
+    removed_at: str | None
 
 
 class OrderResponse(BaseModel):
@@ -233,6 +240,7 @@ class OrderResponse(BaseModel):
     cancelled_at: str | None
     payment_ref: str | None
     lines: list[OrderLineResponse]
+    removed_lines: list[OrderLineResponse]
     subtotal_cents: int
     cogs_total_cents: int
     fee_bps: int
@@ -259,6 +267,7 @@ def get_fulfillment(request: Request) -> Fulfillment:
 
 def _line_response(line: OrderLineView) -> OrderLineResponse:
     return OrderLineResponse(
+        id=line.id,
         product_id=line.product_id,
         product_name=line.product_name,
         qty=line.qty,
@@ -274,6 +283,7 @@ def _line_response(line: OrderLineView) -> OrderLineResponse:
         fund_name=line.fund_name,
         fund_url=line.fund_url,
         fund_description=line.fund_description,
+        removed_at=line.removed_at,
     )
 
 
@@ -289,6 +299,7 @@ def _order_response(view: OrderView) -> OrderResponse:
         cancelled_at=view.cancelled_at,
         payment_ref=view.payment_ref,
         lines=[_line_response(line) for line in view.lines],
+        removed_lines=[_line_response(line) for line in view.removed_lines],
         subtotal_cents=view.subtotal_cents,
         cogs_total_cents=view.cogs_total_cents,
         fee_bps=view.fee_bps,
@@ -366,6 +377,35 @@ def post_cancel_order(
         return _order_response(cancel_order(session, order))
     except OrderNotCancellable:
         raise APIError(409, "ORDER_NOT_CANCELLABLE", "Order cannot be cancelled.") from None
+
+
+@router.post("/orders/{order_id}/lines/{line_id}/remove", response_model=OrderResponse)
+def post_remove_order_line(
+    order_id: int,
+    line_id: int,
+    session: Annotated[Session, Depends(get_session)],
+    user: Annotated[User, Depends(require_role("patient"))],
+) -> OrderResponse:
+    order = _load_order(session, order_id)
+    require_order_access(order, user)
+    try:
+        return _order_response(remove_order_line(session, order, line_id))
+    except LineNotFound:
+        raise APIError(404, "NOT_FOUND", "Not found") from None
+    except LastLine:
+        raise APIError(
+            409,
+            "LAST_LINE",
+            "At least one item must remain. Ask your provider to cancel the order.",
+        ) from None
+    except OrderNotRemovable:
+        raise APIError(409, "ORDER_NOT_REMOVABLE", "Order cannot be changed.") from None
+    except LineNotRemovable:
+        raise APIError(
+            409,
+            "LINE_NOT_REMOVABLE",
+            "This item can't be removed on its own. Ask your provider to update the order.",
+        ) from None
 
 
 @router.post("/orders/{order_id}/pay", response_model=OrderResponse)

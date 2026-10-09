@@ -1105,3 +1105,24 @@ label.check-label {
 .line-instructions__label {
   font-weight: 600;
 }
+
+/* Soft-removed order lines (T24 / D13). */
+.line--removed {
+  color: var(--ink-soft);
+}
+
+.line--removed__name {
+  text-decoration: line-through;
+}
+
+.line-remove {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.line-remove__prompt {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+}

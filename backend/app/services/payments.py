@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models import LedgerEntry, Order, OrderLine, Product
 from app.seams.fulfillment import Fulfillment
 from app.seams.payment_provider import PaymentProvider
-from app.services.orders import OrderView, order_lines, present_order
+from app.services.orders import OrderView, active_order_lines, order_lines, present_order
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +64,20 @@ def pay_order(
             session.expire_all()
             continue
 
-        lines = order_lines(session, order.id)
-        if not _take_stock(session, lines):
+        # Charge and fulfill from the post-claim stored total and active lines only.
+        session.expire(order)
+        claimed_order = session.get(Order, order_id)
+        if claimed_order is None or claimed_order.status != "paid":
+            session.rollback()
+            raise OrderNotPayable
+        active = active_order_lines(session, claimed_order.id)
+        if not _take_stock(session, active):
             session.rollback()
             raise OutOfStock
 
         charged = payment_provider.charge(
-            amount_cents=order.subtotal_cents,
-            idempotency_key=str(order.id),
+            amount_cents=claimed_order.subtotal_cents,
+            idempotency_key=str(claimed_order.id),
             payment_method=payment_method,
         )
         if not charged.approved or charged.ref is None:
@@ -79,17 +85,17 @@ def pay_order(
             raise PaymentDeclined
 
         paid_at = _utc_now()
-        session.expire(order)
+        session.expire(claimed_order)
         paid = session.get(Order, order_id)
         if paid is None or paid.status != "paid":
             session.rollback()
             raise OrderNotPayable
         paid.payment_ref = charged.ref
         paid.paid_at = paid_at
-        _write_ledger(session, paid, lines, paid_at)
+        _write_ledger(session, paid, active, paid_at)
         session.commit()
         _ship(fulfillment, paid)
-        return present_order(session, paid, lines)
+        return present_order(session, paid, order_lines(session, paid.id))
 
     session.rollback()
     raise OrderNotPayable

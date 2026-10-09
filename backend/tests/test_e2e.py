@@ -56,6 +56,7 @@ _AUDIT_KEYS = {
     "payment_ref",
     "paid_at",
     "lines",
+    "removed_lines",
     "subtotal_cents",
     "cogs_total_cents",
     "fee_bps",
