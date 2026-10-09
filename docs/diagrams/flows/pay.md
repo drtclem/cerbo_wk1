@@ -1,10 +1,10 @@
-_Last updated: 2026-10-05 — T9: pay still writes the ledger; audit reads those rows._
+_Last updated: 2026-10-09 — T23: pay writes research_donation ledger rows per fund alongside the four base types._
 
 # POST /orders/{order_id}/pay
 
 `api/orders.post_pay_order` depends on `require_role("patient")`, `get_payment_provider`, and `get_fulfillment`. The body is `{"payment_method": "fake_card_ok" | "fake_card_decline"}`. `PayRequest` is strict. The route loads the order, calls `require_order_access`, then `pay_order` on that same request session.
 
-`get_session` opens one `Session` and closes it with no extra commit. `db.make_engine` listens for `begin` and runs `BEGIN IMMEDIATE`. `pay_order` does not open another session and does not send its own `BEGIN`. The claim, stock updates, `payment_ref`, `paid_at`, and four `ledger_entries` commits are one transaction. `fulfillment.ship` runs after that commit.
+`get_session` opens one `Session` and closes it with no extra commit. `db.make_engine` listens for `begin` and runs `BEGIN IMMEDIATE`. `pay_order` does not open another session and does not send its own `BEGIN`. The claim, stock updates, `payment_ref`, `paid_at`, and ledger inserts commit as one transaction. `fulfillment.ship` runs after that commit.
 
 Create, view, and cancel stay in `flows/orders.md`. Dashboard and audit reads are in `flows/reporting.md`. Pay is still the only writer of `ledger_entries`.
 
@@ -66,7 +66,7 @@ sequenceDiagram
                   Pay->>Db: rollback
                   Pay-->>Client: 402 PAYMENT_DECLINED
                 else approved
-                  Pay->>Db: payment_ref, paid_at, four ledger rows, commit
+                  Pay->>Db: payment_ref, paid_at, ledger rows, commit
                   Pay->>Ship: ship after commit
                   Ship-->>Pay: print and record, or a logged exception
                   Pay-->>Client: 200 order JSON
@@ -96,8 +96,13 @@ sequenceDiagram
 
 **Charge.** `charge(amount_cents=order.subtotal_cents, idempotency_key=str(order.id), payment_method)` runs only after every line takes stock. `fake_card_decline` returns `approved` false, `ref` null, and reason "Card declined." A result that is not approved, or whose `ref` is null, rolls back and raises `PaymentDeclined`. The route returns 402 `PAYMENT_DECLINED`, message "Payment was declined." The rollback leaves `status` `pending_payment`. `ship` is not called. `fake_card_ok` approves with `ref` `fake_{order.id}`.
 
-**Ledger and commit.** After an approval, `pay_order` expires the order and loads it again. If that row is missing or not `paid`, it rolls back and raises `OrderNotPayable`. Otherwise it sets `payment_ref` to `charged.ref` and `paid_at` to UTC `YYYY-MM-DDTHH:MM:SSZ`, then inserts four `ledger_entries` from the stored order columns: `patient_payment` = `subtotal_cents`, `cerbo_cogs` = `cogs_total_cents`, `cerbo_fee` = `platform_fee_cents`, `provider_payable` = `provider_payout_cents`. Each row's `created_at` is that same `paid_at`. One `commit` writes the claim, the stock decrements, `payment_ref`, `paid_at`, and the four ledger rows.
+**Ledger and commit.** After an approval, `pay_order` expires the order and loads it again. If that row is missing or not `paid`, it rolls back and raises `OrderNotPayable`. Otherwise it sets `payment_ref` to `charged.ref` and `paid_at` to UTC `YYYY-MM-DDTHH:MM:SSZ`, then `_write_ledger` inserts:
+
+1. Four non-donation rows from the stored order columns (`fund_id` null): `patient_payment` = `subtotal_cents`, `cerbo_cogs` = `cogs_total_cents`, `cerbo_fee` = `platform_fee_cents`, `provider_payable` = `provider_payout_cents`.
+2. One `research_donation` row per fund with a positive summed line `donation_cents`, ordered by `fund_id`, with that fund's `fund_id` set. Lines with `donation_cents` 0 are skipped. When `donation_bps` was 0 at create, there are no donation ledger rows.
+
+Each row's `created_at` is that same `paid_at`. One `commit` writes the claim, the stock decrements, `payment_ref`, `paid_at`, and those ledger rows. Partial unique indexes allow one non-donation row per `(order_id, entry_type)` and one `research_donation` per `(order_id, fund_id)`.
 
 **Ship.** `FakeFulfillment.ship` runs after the commit. It prints `would ship order #{id}` and appends the order id to `calls`. If `ship` raises, the service logs `fulfillment failed after order {id} was paid` and still returns the receipt. The commit is not undone. Returning an already-paid order does not ship.
 
-**Receipt.** HTTP 200 is `present_order`, the same order JSON as `GET /orders/{order_id}`: stored order columns, `patient_link` `/orders/{id}`, and line totals from `line_amounts`. `status` is `paid`, with `paid_at` and `payment_ref` set. Ledger rows are not on the receipt. `GET /orders/{order_id}/audit` reads them. See `flows/reporting.md`.
+**Receipt.** HTTP 200 is `present_order`, the same order JSON as `GET /orders/{order_id}`: stored order columns (including `donation_bps` and `donation_cents`), `patient_link` `/orders/{id}`, and line totals from `line_amounts` plus stored line `donation_cents` and fund snapshots. `status` is `paid`, with `paid_at` and `payment_ref` set. Ledger rows are not on the receipt. `GET /orders/{order_id}/audit` reads them. See `flows/reporting.md`.

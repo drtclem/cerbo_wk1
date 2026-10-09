@@ -1,14 +1,14 @@
-_Last updated: 2026-10-05 — T9: dashboard and audit reads live in flows/reporting.md._
+_Last updated: 2026-10-09 — T23: create accepts donate; snapshots donation_bps/donation_cents and fund fields._
 
 # Create, view, and cancel
 
-`POST /orders/preview` is unchanged and does not write. See `flows/order-preview.md`. Pay is in `flows/pay.md`. Dashboard and audit reads are in `flows/reporting.md`. The routes below share `services/orders` and the error envelope from `app.main`. `get_session` opens a `Session` and closes it with no extra commit. `create_order` and `cancel_order` commit inside the service. The engine `begin` listener runs `BEGIN IMMEDIATE` on that session.
+`POST /orders/preview` accepts `donate` and does not write. See `flows/order-preview.md`. Pay is in `flows/pay.md`. Dashboard and audit reads are in `flows/reporting.md`. The routes below share `services/orders` and the error envelope from `app.main`. `get_session` opens a `Session` and closes it with no extra commit. `create_order` and `cancel_order` commit inside the service. The engine `begin` listener runs `BEGIN IMMEDIATE` on that session.
 
 `patient_link` is always `/orders/{id}`.
 
 ## Create
 
-`POST /orders` depends on `require_role("provider")` and `get_notifier`. The body is `{"patient_id", "lines": [{product_id, qty, unit_price_cents}, ...]}`. `create_order` checks the patient, runs `preview_order`, copies the snapshot, commits, then calls `notifier.order_created`.
+`POST /orders` depends on `require_role("provider")` and `get_notifier`. The body is `{"patient_id", "lines": [{product_id, qty, unit_price_cents, ...}, ...], "donate": bool}` (`donate` defaults to `false`). `create_order` checks the patient, runs `preview_order(..., donate=donate)`, copies the four-way snapshot, commits, then calls `notifier.order_created`.
 
 ```mermaid
 sequenceDiagram
@@ -21,7 +21,7 @@ sequenceDiagram
   participant Db as "orders and order_lines"
   participant Notify as FakeNotifier
 
-  Client->>Route: X-User-Id, patient_id, lines
+  Client->>Route: X-User-Id, patient_id, lines, donate
   Route->>Auth: require_role provider
   alt missing or unknown user
     Auth-->>Client: 401 UNAUTHENTICATED
@@ -33,18 +33,18 @@ sequenceDiagram
       Route-->>Client: 422 VALIDATION_ERROR
     else body accepted
       Route->>Notify: get_notifier reads app.state.notifier
-      Route->>Svc: provider id, patient id, lines, notifier
+      Route->>Svc: provider id, patient id, lines, donate, notifier
       alt patient missing or not role patient
         Svc-->>Client: 422 INVALID_PATIENT
       else patient ok
-        Svc->>Preview: same line checks as preview
+        Svc->>Preview: same line checks as preview, donate
         alt PricingError
-          Preview->>Money: resolved lines at FEE_BPS_DEFAULT
+          Preview->>Money: resolved lines at FEE_BPS_DEFAULT and donation_bps
           Money-->>Client: 422 pricing code
         else ProductUnavailable
           Route-->>Client: 422 PRODUCT_UNAVAILABLE
         else lines resolve
-          Preview->>Money: full list at FEE_BPS_DEFAULT
+          Preview->>Money: full list at FEE_BPS_DEFAULT and donation_bps
           Money-->>Svc: OrderSplit
           Svc->>Db: insert pending_payment order and lines, commit
           Svc->>Notify: order_created /orders/id
@@ -58,9 +58,9 @@ sequenceDiagram
 
 **Patient.** The id must be in `1..9223372036854775807`, and `users.role` must be `patient`. Otherwise nothing is written. The 422 message is "Patient must be a patient user."
 
-**Price.** `preview_order` is the same function as preview, including a pricing check of any resolved prefix before `PRODUCT_UNAVAILABLE`. `PricingError` uses the app handler: `code` is the pricing code, `message` is `detail`, `line_index` is the error's line index. `PRODUCT_UNAVAILABLE` uses message "Product is not available for this provider." A missing `products` row while copying names is the same 422 and still happens before `session.add`.
+**Price.** `preview_order` is the same function as preview, including `donate` → `donation_bps` and a pricing check of any resolved prefix before `PRODUCT_UNAVAILABLE`. `PricingError` uses the app handler: `code` is the pricing code, `message` is `detail`, `line_index` is the error's line index. `PRODUCT_UNAVAILABLE` uses message "Product is not available for this provider." A missing `products` row while copying names is the same 422 and still happens before `session.add`.
 
-**Row.** `status` is `pending_payment`. `fee_bps`, `subtotal_cents`, `cogs_total_cents`, `platform_fee_cents`, and `provider_payout_cents` are copied from the split. Each `order_lines` row stores `product_name`, `qty`, `unit_price_cents`, and `unit_cogs_cents`. `payment_ref`, `paid_at`, and `cancelled_at` are null. Stock and `ledger_entries` are not touched.
+**Row.** `status` is `pending_payment`. `fee_bps`, `donation_bps`, `subtotal_cents`, `cogs_total_cents`, `platform_fee_cents`, `donation_cents`, and `provider_payout_cents` are copied from the split. Each `order_lines` row stores `product_name`, `qty`, `unit_price_cents`, `unit_cogs_cents`, `dosing`, `note`, `donation_cents`, and fund snapshots (`fund_id`, `fund_name`, `fund_url`) from the preview extras. `payment_ref`, `paid_at`, and `cancelled_at` are null. Stock and `ledger_entries` are not touched.
 
 **Notify.** The notifier runs only after `commit`. `FakeNotifier` prints `order created: /orders/{id}` and appends `(order.id, patient_link)`. An exception is logged. The response is still HTTP 200 for the created order.
 
@@ -121,7 +121,7 @@ sequenceDiagram
 
 **List.** The query is `patient_id =` the caller. The route still calls `require_order_access` on each row, then presents it. No rows returns `[]`.
 
-**Amounts.** `line_amounts` returns `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. Order totals and `fee_bps` are the stored `orders` columns. The live catalog is not read. `compute_fee` is not called.
+**Amounts.** `line_amounts` returns `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. Order totals, `fee_bps`, `donation_bps`, and `donation_cents` are the stored `orders` columns. Line `donation_cents` and fund snapshots are stored on the line. The live catalog is not read. `compute_fee` is not called.
 
 ## Cancel
 

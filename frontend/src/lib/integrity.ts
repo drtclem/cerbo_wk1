@@ -13,3 +13,4 @@ export function feeMatchesLabel(feeBps: number): string {
 
 export const SPLIT_ADDS_UP_LABEL = "Split adds up to the subtotal";
 export const LEDGER_MATCHES_LABEL = "Ledger matches the split";
+export const DONATION_MATCHES_LABEL = "Donation matches the rate";

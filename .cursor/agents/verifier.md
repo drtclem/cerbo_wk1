@@ -27,3 +27,6 @@ A short table: each step, the command you ran, and PASS / FAIL / NOT RUN (with r
 Then, for each failure: the relevant error output (trimmed to what matters), the file and line if shown, and your best one-line guess at the cause.
 
 End with one line: **VERIFIED** (everything ran and passed) or **NOT VERIFIED** (anything failed or couldn't run).
+
+## Git
+Never run git commands that change history or branches (checkout, switch, branch, commit, push, reset, stash, merge, rebase), and never open pull requests. Read-only git is fine. Leave changes uncommitted; the human commits.

@@ -42,6 +42,7 @@ _ORDER_MONEY = (
     "subtotal_cents",
     "cogs_total_cents",
     "platform_fee_cents",
+    "donation_cents",
     "provider_payout_cents",
 )
 _COUNTED_MODELS = (
@@ -457,6 +458,7 @@ def _stored_order(application: FastAPI, order_id: int) -> dict[str, object]:
             "subtotal_cents": _require_int(order.subtotal_cents),
             "cogs_total_cents": _require_int(order.cogs_total_cents),
             "platform_fee_cents": _require_int(order.platform_fee_cents),
+            "donation_cents": _require_int(order.donation_cents),
             "provider_payout_cents": _require_int(order.provider_payout_cents),
             "lines": lines,
         }

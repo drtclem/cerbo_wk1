@@ -1,10 +1,10 @@
-_Last updated: 2026-10-05 — Audit JSON adds split_adds_up and ledger_matches_split._
+_Last updated: 2026-10-09 — T23: dashboard donation_cents; audit donation_matches_rate and four-way ledger checks._
 
 # Dashboard and audit
 
 `api/reporting` is included from `app.main` after `api/orders`. Both routes depend on `require_role("provider")` and `get_session`. `provider_dashboard` and `order_audit` do not commit and do not insert, update, or delete. The session closes with no commit.
 
-Create, view, and cancel stay in `flows/orders.md`. Pay, which writes the four `ledger_entries`, stays in `flows/pay.md`.
+Create, view, and cancel stay in `flows/orders.md`. Pay, which writes the base ledger rows plus any `research_donation` rows, stays in `flows/pay.md`.
 
 ## Dashboard
 
@@ -41,15 +41,15 @@ sequenceDiagram
 
 **Names.** `users.name` is loaded for the distinct patient ids on those orders. Paid and pending rows use that current name.
 
-**Headlines.** `gmv_cents` sums `patient_payment`. `platform_fee_cents` sums `cerbo_fee`. `earnings_cents` sums `provider_payable`. The query is `ledger_entries` whose `order_id` is in the paid set. `cerbo_cogs` is skipped. No paid orders returns `0, 0, 0` without reading the ledger.
+**Headlines.** `gmv_cents` sums `patient_payment`. `platform_fee_cents` sums `cerbo_fee`. `donation_cents` sums `research_donation`. `earnings_cents` sums `provider_payable`. The query is `ledger_entries` whose `order_id` is in the paid set. `cerbo_cogs` is skipped. No paid orders returns `0, 0, 0, 0` without reading the ledger.
 
-**Paid rows.** Each paid order copies `subtotal_cents`, `platform_fee_cents`, and `provider_payout_cents` from `orders`, not from the ledger sums. `paid_at` is the stored value, or `""` when null. `audit_link` is `/orders/{id}/audit`.
+**Paid rows.** Each paid order copies `subtotal_cents`, `platform_fee_cents`, `donation_cents`, and `provider_payout_cents` from `orders`, not from the ledger sums. `paid_at` is the stored value, or `""` when null. `audit_link` is `/orders/{id}/audit`.
 
 **Units.** Lines come from `order_lines` joined to `orders` with `provider_id` equal to the caller and `status` `paid`, ordered by `order_lines.id`. `qty` is summed by `product_id`. `product_name` is the snapshot on the first line seen for that product, which is the lowest `order_lines.id`. The response list is ordered by `product_id`. Pending and cancelled lines are not included.
 
 **Pending rows.** Each `pending_payment` order contributes `id`, `created_at`, `patient_id`, and `patient_name`.
 
-**Out.** HTTP 200 is `{gmv_cents, platform_fee_cents, earnings_cents, paid_orders, units_sold, pending_orders}`. Nothing is written.
+**Out.** HTTP 200 is `{gmv_cents, platform_fee_cents, donation_cents, earnings_cents, paid_orders, units_sold, pending_orders}`. Nothing is written.
 
 ## Audit
 
@@ -63,7 +63,7 @@ sequenceDiagram
   participant Orders as get_order
   participant Access as require_order_access
   participant Svc as order_audit
-  participant Money as "line_amounts and compute_fee"
+  participant Money as "line_amounts compute_fee line_donation_cents"
   participant Db as "order_lines and ledger_entries"
 
   Client->>Route: X-User-Id and order_id
@@ -88,7 +88,7 @@ sequenceDiagram
           Svc->>Db: order_lines order by id
           Svc->>Money: line_amounts on each snapshot
           Svc->>Db: ledger_entries order by id
-          Svc->>Money: compute_fee subtotal, fee_bps
+          Svc->>Money: compute_fee and donation_matches_rate
           Note over Svc: split_adds_up and ledger_matches_split
           Route-->>Client: 200 audit JSON
         end
@@ -107,16 +107,18 @@ sequenceDiagram
 
 **Status.** The route does not filter on `status`. A `pending_payment` or `cancelled` order the provider owns is returned. Pay is what inserts ledger rows, so those unpaid orders have `ledger: []`.
 
-**Lines.** `order_lines` for that `order_id`, ordered by `order_lines.id`. `line_amounts` uses the stored `unit_price_cents`, `unit_cogs_cents`, and `qty`. It returns `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. The live catalog is not read. `validate_order` is not called.
+**Lines.** `order_lines` for that `order_id`, ordered by `order_lines.id`. `line_amounts` uses the stored `unit_price_cents`, `unit_cogs_cents`, and `qty`. It returns `unit_price_cents * qty`, `unit_cogs_cents * qty`, and the difference. Each audit line also copies stored `donation_cents`, `fund_id`, `fund_name`, and `fund_url`. The live catalog is not read. `validate_order` is not called.
 
-**Split.** `subtotal_cents`, `cogs_total_cents`, `fee_bps`, `platform_fee_cents`, and `provider_payout_cents` are the stored `orders` columns. `id` and `status` are copied from the order.
+**Split.** `subtotal_cents`, `cogs_total_cents`, `fee_bps`, `platform_fee_cents`, `donation_bps`, `donation_cents`, and `provider_payout_cents` are the stored `orders` columns. `id` and `status` are copied from the order.
 
-**Ledger.** `ledger_entries` for that order, ordered by `ledger_entries.id`. Each item is `{entry_type, amount_cents, created_at}`. A paid order has the four rows pay inserted. An unpaid order has none.
+**Ledger.** `ledger_entries` for that order, ordered by `ledger_entries.id`. Each item is `{entry_type, amount_cents, created_at, fund_id}`. A paid order has the four base rows plus zero or more `research_donation` rows. An unpaid order has none.
 
 **Fee check.** `recomputed_fee_matches` is true when `compute_fee(subtotal_cents, fee_bps)` equals the stored `platform_fee_cents`. `compute_split` is not called.
 
-**Split check.** `split_adds_up` is true when `subtotal_cents == cogs_total_cents + platform_fee_cents + provider_payout_cents` on the stored order columns.
+**Donation check.** `donation_matches_rate` is true when every line's stored `donation_cents` equals `line_donation_cents(margin, order.donation_bps, fund_id is not None)` and those amounts sum to `order.donation_cents`.
 
-**Ledger check.** For status `paid`, `ledger_matches_split` is true when the ledger has exactly the four entry types and `patient_payment` equals `subtotal_cents`, `cerbo_cogs` equals `cogs_total_cents`, `cerbo_fee` equals `platform_fee_cents`, and `provider_payable` equals `provider_payout_cents`. A repeated entry type is false. For any other status, it is true only when the ledger is empty.
+**Split check.** `split_adds_up` is true when `subtotal_cents == cogs_total_cents + platform_fee_cents + donation_cents + provider_payout_cents` on the stored order columns.
 
-**Out.** HTTP 200 is `{id, status, lines, subtotal_cents, cogs_total_cents, fee_bps, platform_fee_cents, provider_payout_cents, ledger, recomputed_fee_matches, split_adds_up, ledger_matches_split}`. Nothing is written.
+**Ledger check.** For status `paid`, `ledger_matches_split` is true when the ledger has exactly the four non-donation entry types (amounts equal to the stored order columns, `fund_id` null, no duplicates) and the `research_donation` rows match the per-fund sums of positive line `donation_cents` (one row per fund, amounts sum to `order.donation_cents`). A repeated entry type or fund is false. For any other status, it is true only when the ledger is empty.
+
+**Out.** HTTP 200 is `{id, status, lines, subtotal_cents, cogs_total_cents, fee_bps, platform_fee_cents, donation_bps, donation_cents, provider_payout_cents, ledger, recomputed_fee_matches, donation_matches_rate, split_adds_up, ledger_matches_split}`. Nothing is written.

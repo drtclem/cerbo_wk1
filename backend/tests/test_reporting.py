@@ -33,11 +33,14 @@ _SPLIT_FIELDS = (
     "cogs_total_cents",
     "fee_bps",
     "platform_fee_cents",
+    "donation_bps",
+    "donation_cents",
     "provider_payout_cents",
 )
 _DASHBOARD_KEYS = {
     "gmv_cents",
     "platform_fee_cents",
+    "donation_cents",
     "earnings_cents",
     "paid_orders",
     "units_sold",
@@ -50,6 +53,7 @@ _PAID_ORDER_KEYS = {
     "patient_name",
     "subtotal_cents",
     "platform_fee_cents",
+    "donation_cents",
     "provider_payout_cents",
     "audit_link",
 }
@@ -65,9 +69,12 @@ _AUDIT_KEYS = {
     "cogs_total_cents",
     "fee_bps",
     "platform_fee_cents",
+    "donation_bps",
+    "donation_cents",
     "provider_payout_cents",
     "ledger",
     "recomputed_fee_matches",
+    "donation_matches_rate",
     "split_adds_up",
     "ledger_matches_split",
 }
@@ -80,15 +87,24 @@ _LINE_KEYS = {
     "line_total_cents",
     "line_cogs_cents",
     "line_margin_cents",
+    "donation_cents",
+    "fund_id",
+    "fund_name",
+    "fund_url",
 }
-_LEDGER_KEYS = {"entry_type", "amount_cents", "created_at"}
+_LEDGER_KEYS = {"entry_type", "amount_cents", "created_at", "fund_id"}
 _LEDGER_TYPES = (
     "patient_payment",
     "cerbo_cogs",
     "cerbo_fee",
     "provider_payable",
 )
-_HEADLINE_TYPES = ("patient_payment", "cerbo_fee", "provider_payable")
+_HEADLINE_TYPES = (
+    "patient_payment",
+    "cerbo_fee",
+    "provider_payable",
+    "research_donation",
+)
 _COUNTED_MODELS = (
     ("users", User),
     ("products", Product),
@@ -280,6 +296,10 @@ def _orders(application: FastAPI) -> list[dict[str, object]]:
                         "qty": _require_int(line.qty),
                         "unit_price_cents": _require_int(line.unit_price_cents),
                         "unit_cogs_cents": _require_int(line.unit_cogs_cents),
+                        "donation_cents": _require_int(line.donation_cents),
+                        "fund_id": line.fund_id,
+                        "fund_name": line.fund_name,
+                        "fund_url": line.fund_url,
                     }
                 )
             loaded.append(
@@ -289,9 +309,11 @@ def _orders(application: FastAPI) -> list[dict[str, object]]:
                     "patient_id": _require_int(order.patient_id),
                     "status": order.status,
                     "fee_bps": _require_int(order.fee_bps),
+                    "donation_bps": _require_int(order.donation_bps),
                     "subtotal_cents": _require_int(order.subtotal_cents),
                     "cogs_total_cents": _require_int(order.cogs_total_cents),
                     "platform_fee_cents": _require_int(order.platform_fee_cents),
+                    "donation_cents": _require_int(order.donation_cents),
                     "provider_payout_cents": _require_int(order.provider_payout_cents),
                     "created_at": order.created_at,
                     "paid_at": order.paid_at,
@@ -336,6 +358,7 @@ def _ledger(application: FastAPI) -> list[dict[str, object]]:
                     "entry_type": _require_str(row.entry_type),
                     "amount_cents": _require_int(row.amount_cents),
                     "created_at": _require_str(row.created_at),
+                    "fund_id": row.fund_id,
                 }
             )
         return loaded
@@ -480,7 +503,7 @@ def _set_product_name_and_cogs(
 
 
 def _shift_stored_fee(application: FastAPI, order_id: int) -> tuple[int, int]:
-    # fee + 1 and payout - 1 keeps subtotal = cogs + fee + payout.
+    # fee + 1 and payout - 1 keeps subtotal = cogs + fee + donation + payout.
     session: Session = application.state.session_factory()
     try:
         order = session.get(Order, order_id)
@@ -494,6 +517,7 @@ def _shift_stored_fee(application: FastAPI, order_id: int) -> tuple[int, int]:
         assert _require_int(order.subtotal_cents) == (
             _require_int(order.cogs_total_cents)
             + _require_int(order.platform_fee_cents)
+            + _require_int(order.donation_cents)
             + _require_int(order.provider_payout_cents)
         )
         return fee, payout
@@ -629,9 +653,11 @@ def _assert_paid_order_item(
     assert item["patient_name"] == names[patient_id]
     subtotal_cents = _require_int(item["subtotal_cents"])
     platform_fee_cents = _require_int(item["platform_fee_cents"])
+    donation_cents = _require_int(item["donation_cents"])
     provider_payout_cents = _require_int(item["provider_payout_cents"])
     assert subtotal_cents == _require_int(stored["subtotal_cents"])
     assert platform_fee_cents == _require_int(stored["platform_fee_cents"])
+    assert donation_cents == _require_int(stored["donation_cents"])
     assert provider_payout_cents == _require_int(stored["provider_payout_cents"])
     assert item["audit_link"] == f"/orders/{order_id}/audit"
     amounts = _amounts_by_type(_ledger_for_order(ledger, order_id))
@@ -672,10 +698,12 @@ def _assert_dashboard(
     assert set(body) == _DASHBOARD_KEYS
     gmv_cents = _require_int(body["gmv_cents"])
     platform_fee_cents = _require_int(body["platform_fee_cents"])
+    donation_cents = _require_int(body["donation_cents"])
     earnings_cents = _require_int(body["earnings_cents"])
     sums = _paid_ledger_sums(application, provider_id)
     assert gmv_cents == sums["patient_payment"]
     assert platform_fee_cents == sums["cerbo_fee"]
+    assert donation_cents == sums["research_donation"]
     assert earnings_cents == sums["provider_payable"]
 
     paid_stored = _orders_for(application, provider_id, "paid")
@@ -754,10 +782,15 @@ def _assert_audit(
     assert isinstance(body["recomputed_fee_matches"], bool)
     assert body["recomputed_fee_matches"] is matches
     cogs_total_cents = _require_int(stored["cogs_total_cents"])
+    donation_cents = _require_int(stored["donation_cents"])
     payout_cents = _require_int(stored["provider_payout_cents"])
-    split_adds_up = subtotal_cents == cogs_total_cents + stored_fee + payout_cents
+    split_adds_up = (
+        subtotal_cents == cogs_total_cents + stored_fee + donation_cents + payout_cents
+    )
     assert isinstance(body["split_adds_up"], bool)
     assert body["split_adds_up"] is split_adds_up
+    assert isinstance(body["donation_matches_rate"], bool)
+    assert body["donation_matches_rate"] is True
 
     response_lines = [_require_dict(line) for line in _require_list(body["lines"])]
     stored_by_product = _index_lines(_stored_lines(stored))
@@ -777,6 +810,12 @@ def _assert_audit(
         assert _require_int(line["line_cogs_cents"]) == unit_cogs_cents * qty
         margin = unit_price_cents * qty - unit_cogs_cents * qty
         assert _require_int(line["line_margin_cents"]) == margin
+        assert _require_int(line["donation_cents"]) == _require_int(
+            stored_line["donation_cents"]
+        )
+        assert line["fund_id"] == stored_line["fund_id"]
+        assert line["fund_name"] == stored_line["fund_name"]
+        assert line["fund_url"] == stored_line["fund_url"]
 
     stored_ledger = _ledger_for_order(ledger, order_id)
     response_ledger = [_require_dict(entry) for entry in _require_list(body["ledger"])]
@@ -788,6 +827,7 @@ def _assert_audit(
             stored_entry["amount_cents"]
         )
         assert response_entry["created_at"] == stored_entry["created_at"]
+        assert response_entry["fund_id"] == stored_entry["fund_id"]
 
     if stored["status"] == "paid":
         paid_at = stored["paid_at"]
@@ -1106,12 +1146,14 @@ def test_audit_flags_are_true_for_a_paid_order_and_an_unpaid_order(tmp_path: Pat
         assert unpaid_body["status"] == "pending_payment"
         assert unpaid_body["ledger"] == []
         assert unpaid_body["recomputed_fee_matches"] is True
+        assert unpaid_body["donation_matches_rate"] is True
         assert unpaid_body["split_adds_up"] is True
         assert unpaid_body["ledger_matches_split"] is True
         subtotal_cents = _require_int(unpaid_body["subtotal_cents"])
         assert subtotal_cents == (
             _require_int(unpaid_body["cogs_total_cents"])
             + _require_int(unpaid_body["platform_fee_cents"])
+            + _require_int(unpaid_body["donation_cents"])
             + _require_int(unpaid_body["provider_payout_cents"])
         )
 
@@ -1123,6 +1165,7 @@ def test_audit_flags_are_true_for_a_paid_order_and_an_unpaid_order(tmp_path: Pat
         body = _require_dict(audit.json())
         assert body["status"] == "paid"
         assert body["recomputed_fee_matches"] is True
+        assert body["donation_matches_rate"] is True
         assert body["split_adds_up"] is True
         assert body["ledger_matches_split"] is True
         amounts = _amounts_by_type(

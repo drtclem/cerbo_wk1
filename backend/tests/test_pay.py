@@ -36,6 +36,8 @@ _SPLIT_FIELDS = (
     "cogs_total_cents",
     "fee_bps",
     "platform_fee_cents",
+    "donation_bps",
+    "donation_cents",
     "provider_payout_cents",
 )
 _ORDER_KEYS = {
@@ -53,6 +55,8 @@ _ORDER_KEYS = {
     "cogs_total_cents",
     "fee_bps",
     "platform_fee_cents",
+    "donation_bps",
+    "donation_cents",
     "provider_payout_cents",
 }
 _LINE_KEYS = {
@@ -66,6 +70,11 @@ _LINE_KEYS = {
     "line_margin_cents",
     "dosing",
     "note",
+    "donation_cents",
+    "fund_id",
+    "fund_name",
+    "fund_url",
+    "fund_description",
 }
 _STORED_LINE_KEYS = (
     "product_id",
@@ -75,6 +84,10 @@ _STORED_LINE_KEYS = (
     "unit_cogs_cents",
     "dosing",
     "note",
+    "donation_cents",
+    "fund_id",
+    "fund_name",
+    "fund_url",
 )
 _LINE_MONEY = (
     "qty",
@@ -302,6 +315,10 @@ def _orders_in(session: Session) -> list[dict[str, object]]:
                     "unit_cogs_cents": _require_int(line.unit_cogs_cents),
                     "dosing": line.dosing,
                     "note": line.note,
+                    "donation_cents": _require_int(line.donation_cents),
+                    "fund_id": line.fund_id,
+                    "fund_name": line.fund_name,
+                    "fund_url": line.fund_url,
                 }
             )
         loaded.append(
@@ -311,9 +328,11 @@ def _orders_in(session: Session) -> list[dict[str, object]]:
                 "patient_id": _require_int(order.patient_id),
                 "status": order.status,
                 "fee_bps": _require_int(order.fee_bps),
+                "donation_bps": _require_int(order.donation_bps),
                 "subtotal_cents": _require_int(order.subtotal_cents),
                 "cogs_total_cents": _require_int(order.cogs_total_cents),
                 "platform_fee_cents": _require_int(order.platform_fee_cents),
+                "donation_cents": _require_int(order.donation_cents),
                 "provider_payout_cents": _require_int(order.provider_payout_cents),
                 "payment_ref": order.payment_ref,
                 "created_at": order.created_at,
@@ -340,6 +359,7 @@ def _ledger_in(session: Session) -> list[dict[str, object]]:
                 "entry_type": entry_type,
                 "amount_cents": _require_int(row.amount_cents),
                 "created_at": created_at,
+                "fund_id": row.fund_id,
             }
         )
     return loaded

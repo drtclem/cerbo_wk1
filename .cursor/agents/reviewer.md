@@ -27,3 +27,6 @@ Group findings by severity:
 - **Nit**: style or minor polish
 
 For each finding give the file and line, what's wrong, and a short suggested fix. If nothing blocking is found, say so plainly: "No blocking issues." Don't pad the review with praise or invent problems to seem thorough.
+
+## Git
+Never run git commands that change history or branches (checkout, switch, branch, commit, push, reset, stash, merge, rebase), and never open pull requests. Read-only git is fine. Leave changes uncommitted; the human commits.

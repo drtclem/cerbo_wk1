@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -42,7 +43,7 @@ def pay_order(
             session.rollback()
             raise OrderNotPayable
         if order.status == "paid":
-            view = present_order(order, order_lines(session, order.id))
+            view = present_order(session, order, order_lines(session, order.id))
             session.rollback()
             return view
         if order.status != "pending_payment":
@@ -85,10 +86,10 @@ def pay_order(
             raise OrderNotPayable
         paid.payment_ref = charged.ref
         paid.paid_at = paid_at
-        _write_ledger(session, paid, paid_at)
+        _write_ledger(session, paid, lines, paid_at)
         session.commit()
         _ship(fulfillment, paid)
-        return present_order(paid, lines)
+        return present_order(session, paid, lines)
 
     session.rollback()
     raise OrderNotPayable
@@ -110,20 +111,37 @@ def _take_stock(session: Session, lines: list[OrderLine]) -> bool:
     return True
 
 
-def _write_ledger(session: Session, order: Order, paid_at: str) -> None:
+def _write_ledger(
+    session: Session, order: Order, lines: list[OrderLine], paid_at: str
+) -> None:
     amounts = (
-        ("patient_payment", order.subtotal_cents),
-        ("cerbo_cogs", order.cogs_total_cents),
-        ("cerbo_fee", order.platform_fee_cents),
-        ("provider_payable", order.provider_payout_cents),
+        ("patient_payment", order.subtotal_cents, None),
+        ("cerbo_cogs", order.cogs_total_cents, None),
+        ("cerbo_fee", order.platform_fee_cents, None),
+        ("provider_payable", order.provider_payout_cents, None),
     )
-    for entry_type, amount_cents in amounts:
+    for entry_type, amount_cents, fund_id in amounts:
         session.add(
             LedgerEntry(
                 order_id=order.id,
                 entry_type=entry_type,
                 amount_cents=amount_cents,
                 created_at=paid_at,
+                fund_id=fund_id,
+            )
+        )
+    by_fund: dict[int, int] = defaultdict(int)
+    for line in lines:
+        if line.donation_cents > 0 and line.fund_id is not None:
+            by_fund[line.fund_id] += line.donation_cents
+    for fund_id in sorted(by_fund):
+        session.add(
+            LedgerEntry(
+                order_id=order.id,
+                entry_type="research_donation",
+                amount_cents=by_fund[fund_id],
+                created_at=paid_at,
+                fund_id=fund_id,
             )
         )
 

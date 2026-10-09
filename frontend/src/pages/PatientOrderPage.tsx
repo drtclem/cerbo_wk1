@@ -3,10 +3,16 @@ import { useParams } from "react-router";
 
 import { apiGet, apiSend, errorText } from "../api/client.ts";
 import type { components } from "../api/schema.ts";
+import { DemoFundNote } from "../components/FundDisclosure.tsx";
 import { InlineError } from "../components/InlineError.tsx";
 import { Money } from "../components/Money.tsx";
 import type { User } from "../components/RoleSwitcher.tsx";
 import { StatusPill } from "../components/StatusPill.tsx";
+import {
+  patientDonationFunds,
+  patientDonationIntro,
+  shouldShowPatientDonation,
+} from "../lib/donation.ts";
 
 type OrderResponse = components["schemas"]["OrderResponse"];
 type PaymentMethod = "fake_card_ok" | "fake_card_decline";
@@ -104,6 +110,8 @@ function PatientOrderPage({
   const canPay = role === "patient" && order.status === "pending_payment";
   const title = order.status === "paid" ? "Receipt" : "Order";
   const providerName = users.find((user) => user.id === order.provider_id)?.name ?? "your provider";
+  const showDonation = shouldShowPatientDonation(order.donation_bps, order.lines);
+  const donationFunds = patientDonationFunds(order.lines, order.donation_bps);
 
   async function pay() {
     if (paying.current || order === null || order.status !== "pending_payment") {
@@ -174,6 +182,27 @@ function PatientOrderPage({
         <span>Total</span>
         <Money cents={order.subtotal_cents} />
       </p>
+      {showDonation ? (
+        <section className="patient-donation" aria-label="Research donation">
+          <p className="patient-donation__intro">{patientDonationIntro(providerName)}</p>
+          {donationFunds.length > 0 ? (
+            <ul className="patient-donation__funds">
+              {donationFunds.map((fund) => (
+                <li key={fund.name}>
+                  {fund.url !== null && fund.url.length > 0 ? (
+                    <a href={fund.url} target="_blank" rel="noopener noreferrer">
+                      {fund.name}
+                    </a>
+                  ) : (
+                    fund.name
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <DemoFundNote />
+        </section>
+      ) : null}
       {order.status === "paid" ? (
         <>
           {order.paid_at !== null ? (

@@ -1,6 +1,5 @@
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -39,6 +38,8 @@ _SPLIT_FIELDS = (
     "cogs_total_cents",
     "fee_bps",
     "platform_fee_cents",
+    "donation_bps",
+    "donation_cents",
     "provider_payout_cents",
 )
 _LINE_FIELDS = (
@@ -50,6 +51,11 @@ _LINE_FIELDS = (
     "line_cogs_cents",
     "line_margin_cents",
     "stock_available",
+    "donation_cents",
+    "fund_id",
+    "fund_name",
+    "fund_url",
+    "fund_description",
 )
 _COUNTED_MODELS = (
     ("users", User),
@@ -339,16 +345,8 @@ def test_preview_matches_compute_split_for_a_multi_line_order_and_allows_qty_abo
             ),
         )
         assert FEE_BPS_DEFAULT == 75
-        expected = asdict(compute_split(priced, FEE_BPS_DEFAULT))
+        split = compute_split(priced, FEE_BPS_DEFAULT)
         magnesium_stock = _catalog_int(catalog, "MAG-GLY", "stock_qty")
-        expected["lines"] = [
-            {**line, "stock_available": stock}
-            for line, stock in zip(
-                expected["lines"],
-                (magnesium_stock, probiotic_stock),
-                strict=True,
-            )
-        ]
 
         request_lines = [
             _request_line(magnesium_id, 2, magnesium_price),
@@ -365,7 +363,40 @@ def test_preview_matches_compute_split_for_a_multi_line_order_and_allows_qty_abo
             body=body,
         )
         assert response.status_code == 200
-        _assert_exact_split(response.json(), expected)
+        parsed = _require_dict(response.json())
+        assert set(parsed) == {"lines", *_SPLIT_FIELDS}
+        for field in _SPLIT_FIELDS:
+            assert _require_int(parsed[field]) == getattr(split, field)
+        response_lines = [_require_dict(line) for line in _require_list(parsed["lines"])]
+        assert len(response_lines) == 2
+        for response_line, priced_line, stock in zip(
+            response_lines,
+            split.lines,
+            (magnesium_stock, probiotic_stock),
+            strict=True,
+        ):
+            assert set(response_line) == set(_LINE_FIELDS)
+            assert _require_int(response_line["product_id"]) == priced_line.product_id
+            assert _require_int(response_line["qty"]) == priced_line.qty
+            assert _require_int(response_line["unit_price_cents"]) == (
+                priced_line.unit_price_cents
+            )
+            assert _require_int(response_line["unit_cogs_cents"]) == (
+                priced_line.unit_cogs_cents
+            )
+            assert _require_int(response_line["line_total_cents"]) == (
+                priced_line.line_total_cents
+            )
+            assert _require_int(response_line["line_cogs_cents"]) == priced_line.line_cogs_cents
+            assert _require_int(response_line["line_margin_cents"]) == (
+                priced_line.line_margin_cents
+            )
+            assert _require_int(response_line["stock_available"]) == stock
+            assert _require_int(response_line["donation_cents"]) == priced_line.donation_cents
+            assert response_line["fund_id"] is not None
+            assert isinstance(response_line["fund_name"], str)
+            assert isinstance(response_line["fund_url"], str)
+            assert isinstance(response_line["fund_description"], str)
         assert (
             _catalog_int(_load_catalog(client, provider_id), "PROBIO50", "stock_qty")
             == probiotic_stock

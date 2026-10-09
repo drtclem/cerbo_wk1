@@ -56,9 +56,11 @@ def _add_pending_order(session: Session, provider_id: int, patient_id: int) -> O
         patient_id=patient_id,
         status="pending_payment",
         fee_bps=75,
+        donation_bps=0,
         subtotal_cents=100,
         cogs_total_cents=40,
         platform_fee_cents=10,
+        donation_cents=0,
         provider_payout_cents=50,
         created_at=_CREATED_AT,
     )
@@ -152,8 +154,12 @@ def test_db_rejects_order_line_qty_zero(db_session: Session) -> None:
             qty=0,
             unit_price_cents=200,
             unit_cogs_cents=100,
-        dosing="Example: 1 capsule daily with a meal",
-        note=None,
+            dosing="Example: 1 capsule daily with a meal",
+            note=None,
+            donation_cents=0,
+            fund_id=None,
+            fund_name=None,
+            fund_url=None,
         )
     )
     with pytest.raises(IntegrityError):
@@ -172,8 +178,12 @@ def test_db_rejects_order_line_unit_price_below_unit_cogs(db_session: Session) -
             qty=1,
             unit_price_cents=100,
             unit_cogs_cents=200,
-        dosing="Example: 1 capsule daily with a meal",
-        note=None,
+            dosing="Example: 1 capsule daily with a meal",
+            note=None,
+            donation_cents=0,
+            fund_id=None,
+            fund_name=None,
+            fund_url=None,
         )
     )
     with pytest.raises(IntegrityError):
@@ -188,9 +198,11 @@ def test_db_rejects_order_whose_split_does_not_add_up(db_session: Session) -> No
             patient_id=patient_id,
             status="pending_payment",
             fee_bps=75,
+            donation_bps=0,
             subtotal_cents=100,
             cogs_total_cents=40,
             platform_fee_cents=10,
+            donation_cents=0,
             provider_payout_cents=40,
             created_at=_CREATED_AT,
         )
@@ -207,9 +219,11 @@ def test_db_rejects_negative_payout_that_still_sums(db_session: Session) -> None
             patient_id=patient_id,
             status="pending_payment",
             fee_bps=75,
+            donation_bps=0,
             subtotal_cents=100,
             cogs_total_cents=50,
             platform_fee_cents=51,
+            donation_cents=0,
             provider_payout_cents=-1,
             created_at=_CREATED_AT,
         )
@@ -262,9 +276,11 @@ def test_db_rejects_unknown_order_status(db_session: Session) -> None:
             patient_id=patient_id,
             status="shipped",
             fee_bps=75,
+            donation_bps=0,
             subtotal_cents=100,
             cogs_total_cents=40,
             platform_fee_cents=10,
+            donation_cents=0,
             provider_payout_cents=50,
             created_at=_CREATED_AT,
         )
@@ -313,8 +329,12 @@ def test_foreign_keys_reject_order_line_whose_order_does_not_exist(
             qty=1,
             unit_price_cents=2400,
             unit_cogs_cents=1200,
-        dosing="Example: 1 capsule daily with a meal",
-        note=None,
+            dosing="Example: 1 capsule daily with a meal",
+            note=None,
+            donation_cents=0,
+            fund_id=None,
+            fund_name=None,
+            fund_url=None,
         )
     )
     with pytest.raises(IntegrityError):

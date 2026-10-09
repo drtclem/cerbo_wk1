@@ -7,6 +7,8 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from app.domain.money import (
+    DONATION_BPS_OFF,
+    DONATION_BPS_ON,
     FEE_BPS_DEFAULT,
     LineInput,
     LineSplit,
@@ -18,6 +20,7 @@ from app.domain.money import (
 )
 
 _NEGATIVE_PAYOUT_DETAIL = "Price too low to cover the platform fee."
+_DONATION_EXCEEDS_DETAIL = "Donation would leave the provider with a negative payout."
 _MAX_UNIT_CENTS = 300_000  # a few thousand dollars
 _MAX_QTY = 20
 
@@ -28,12 +31,14 @@ def _line(
     unit_cogs_cents: int,
     qty: int = 1,
     product_id: int = 1,
+    has_research_fund: bool = False,
 ) -> LineInput:
     return LineInput(
         product_id=product_id,
         qty=qty,
         unit_price_cents=unit_price_cents,
         unit_cogs_cents=unit_cogs_cents,
+        has_research_fund=has_research_fund,
     )
 
 
@@ -48,6 +53,8 @@ def _assert_split(
     cogs_total_cents: int,
     platform_fee_cents: int,
     provider_payout_cents: int,
+    donation_cents: int = 0,
+    donation_bps: int = DONATION_BPS_OFF,
 ) -> None:
     assert isinstance(split, OrderSplit)
     assert isinstance(split.lines, tuple)
@@ -56,38 +63,57 @@ def _assert_split(
         split.subtotal_cents,
         split.cogs_total_cents,
         split.platform_fee_cents,
+        split.donation_cents,
         split.provider_payout_cents,
         split.fee_bps,
+        split.donation_bps,
     ):
         _assert_int(amount)
     assert split.subtotal_cents == subtotal_cents
     assert split.cogs_total_cents == cogs_total_cents
     assert split.platform_fee_cents == platform_fee_cents
+    assert split.donation_cents == donation_cents
     assert split.provider_payout_cents == provider_payout_cents
     assert split.fee_bps == FEE_BPS_DEFAULT
+    assert split.donation_bps == donation_bps
     assert compute_fee(subtotal_cents, FEE_BPS_DEFAULT) == platform_fee_cents
     assert (
         split.subtotal_cents
-        == split.cogs_total_cents + split.platform_fee_cents + split.provider_payout_cents
+        == split.cogs_total_cents
+        + split.platform_fee_cents
+        + split.donation_cents
+        + split.provider_payout_cents
     )
 
 
-def _validated(lines: Sequence[LineInput]) -> OrderSplit:
-    split = validate_order(lines, FEE_BPS_DEFAULT)
-    assert compute_split(lines, FEE_BPS_DEFAULT) == split
+def _validated(
+    lines: Sequence[LineInput],
+    *,
+    donation_bps: int = DONATION_BPS_OFF,
+) -> OrderSplit:
+    split = validate_order(lines, FEE_BPS_DEFAULT, donation_bps)
+    assert compute_split(lines, FEE_BPS_DEFAULT, donation_bps) == split
     assert len(split.lines) == len(lines)
     return split
 
 
-def _rejected(lines: Sequence[LineInput], code: str, line_index: int | None) -> PricingError:
+def _rejected(
+    lines: Sequence[LineInput],
+    code: str,
+    line_index: int | None,
+    *,
+    donation_bps: int = DONATION_BPS_OFF,
+) -> PricingError:
     assert issubclass(PricingError, Exception)
     with pytest.raises(PricingError) as exc_info:
-        validate_order(lines, FEE_BPS_DEFAULT)
+        validate_order(lines, FEE_BPS_DEFAULT, donation_bps)
     error = exc_info.value
     assert error.code == code
     assert error.line_index == line_index
     if code == "NEGATIVE_PAYOUT":
         assert error.detail == _NEGATIVE_PAYOUT_DETAIL
+    elif code == "DONATION_EXCEEDS_PAYOUT":
+        assert error.detail == _DONATION_EXCEEDS_DETAIL
     else:
         assert isinstance(error.detail, str)
     return error
@@ -278,17 +304,27 @@ def test_zero_quantity_is_reported_before_price_below_cogs() -> None:
     )
 
 
-def _spec_payout_cents(lines: Sequence[LineInput], fee_bps: int) -> int:
+def _spec_payout_cents(
+    lines: Sequence[LineInput],
+    fee_bps: int,
+    donation_bps: int = DONATION_BPS_OFF,
+) -> int:
     subtotal_cents = sum(line.unit_price_cents * line.qty for line in lines)
     cogs_total_cents = sum(line.unit_cogs_cents * line.qty for line in lines)
     fee_cents = (subtotal_cents * fee_bps + 5_000) // 10_000
-    return subtotal_cents - cogs_total_cents - fee_cents
+    donation_cents = 0
+    for line in lines:
+        if line.has_research_fund and donation_bps:
+            margin = (line.unit_price_cents - line.unit_cogs_cents) * line.qty
+            donation_cents += (margin * donation_bps) // 10_000
+    return subtotal_cents - cogs_total_cents - fee_cents - donation_cents
 
 
 @st.composite
-def _valid_orders(draw: st.DrawFn) -> tuple[tuple[LineInput, ...], int]:
+def _valid_orders(draw: st.DrawFn) -> tuple[tuple[LineInput, ...], int, int]:
     """Qty, prices, and COGS already satisfy the line rules. Payout is >= 0."""
     fee_bps = draw(st.one_of(st.just(75), st.integers(min_value=0, max_value=200)))
+    donation_bps = draw(st.sampled_from([DONATION_BPS_OFF, DONATION_BPS_ON]))
     count = draw(st.integers(min_value=1, max_value=4))
     lines: list[LineInput] = []
     for _ in range(count):
@@ -299,9 +335,10 @@ def _valid_orders(draw: st.DrawFn) -> tuple[tuple[LineInput, ...], int]:
                 qty=draw(st.integers(min_value=1, max_value=_MAX_QTY)),
                 unit_price_cents=unit_price_cents,
                 unit_cogs_cents=draw(st.integers(min_value=1, max_value=unit_price_cents)),
+                has_research_fund=draw(st.booleans()),
             )
         )
-    if _spec_payout_cents(lines, fee_bps) < 0:
+    if _spec_payout_cents(lines, fee_bps, donation_bps) < 0:
         # Move only the invalid draws into the valid region (COGS 1¢, price at
         # least $1) so the property is not fed orders validate_order rejects.
         lines = [
@@ -310,36 +347,42 @@ def _valid_orders(draw: st.DrawFn) -> tuple[tuple[LineInput, ...], int]:
                 qty=line.qty,
                 unit_price_cents=max(line.unit_price_cents, 100),
                 unit_cogs_cents=1,
+                has_research_fund=line.has_research_fund,
             )
             for line in lines
         ]
-    return tuple(lines), fee_bps
+    return tuple(lines), fee_bps, donation_bps
 
 
 @settings(max_examples=100)
 @given(order=_valid_orders())
-def test_valid_orders_keep_subtotal_equal_to_cogs_plus_fee_plus_payout(
-    order: tuple[tuple[LineInput, ...], int],
+def test_valid_orders_keep_four_way_split_and_donation_at_most_five_percent_of_margin(
+    order: tuple[tuple[LineInput, ...], int, int],
 ) -> None:
-    lines, fee_bps = order
+    lines, fee_bps, donation_bps = order
     subtotal_cents = sum(line.unit_price_cents * line.qty for line in lines)
     cogs_total_cents = sum(line.unit_cogs_cents * line.qty for line in lines)
-    assume(_spec_payout_cents(lines, fee_bps) >= 0)
+    assume(_spec_payout_cents(lines, fee_bps, donation_bps) >= 0)
 
-    split = validate_order(lines, fee_bps)
+    split = validate_order(lines, fee_bps, donation_bps)
 
     assert split.subtotal_cents == subtotal_cents
     assert split.cogs_total_cents == cogs_total_cents
     assert (
         split.subtotal_cents
-        == split.cogs_total_cents + split.platform_fee_cents + split.provider_payout_cents
+        == split.cogs_total_cents
+        + split.platform_fee_cents
+        + split.donation_cents
+        + split.provider_payout_cents
     )
     assert split.platform_fee_cents == compute_fee(split.subtotal_cents, fee_bps)
     assert split.fee_bps == fee_bps
+    assert split.donation_bps == donation_bps
     assert split.provider_payout_cents >= 0
-    assert compute_split(lines, fee_bps) == split
+    assert compute_split(lines, fee_bps, donation_bps) == split
     assert isinstance(split.lines, tuple)
     assert len(split.lines) == len(lines)
+    margin_total = 0
     for source, priced in zip(lines, split.lines, strict=True):
         assert isinstance(priced, LineSplit)
         assert priced.product_id == source.product_id
@@ -349,16 +392,25 @@ def test_valid_orders_keep_subtotal_equal_to_cogs_plus_fee_plus_payout(
         assert priced.line_total_cents == source.unit_price_cents * source.qty
         assert priced.line_cogs_cents == source.unit_cogs_cents * source.qty
         assert priced.line_margin_cents == priced.line_total_cents - priced.line_cogs_cents
+        margin_total += priced.line_margin_cents
+        if not source.has_research_fund or donation_bps == 0:
+            assert priced.donation_cents == 0
+        else:
+            assert priced.donation_cents == (priced.line_margin_cents * donation_bps) // 10_000
         for amount in (
             split.subtotal_cents,
             split.cogs_total_cents,
             split.platform_fee_cents,
+            split.donation_cents,
             split.provider_payout_cents,
             priced.line_total_cents,
             priced.line_cogs_cents,
             priced.line_margin_cents,
+            priced.donation_cents,
         ):
             _assert_int(amount)
+    assert split.donation_cents <= (margin_total * DONATION_BPS_ON) // 10_000
+
 
 
 def test_inputs_and_splits_are_frozen() -> None:
@@ -373,6 +425,115 @@ def test_inputs_and_splits_are_frozen() -> None:
         split.subtotal_cents = 0
     with pytest.raises(AttributeError):
         split.lines[0].line_total_cents = 0
+
+
+def test_readme_order_donation_off_matches_today_and_on_matches_worked_example() -> None:
+    """README Mag×2 + D3×1.
+
+    Off: subtotal 6600, COGS 3300, fee 50, donation 0, payout 3250.
+    On:  margins 2400 and 900 → donations (2400×500)//10000=120 and
+         (900×500)//10000=45 → total 165; payout 3085.
+    """
+    lines = (
+        _line(
+            product_id=1,
+            qty=2,
+            unit_price_cents=2_400,
+            unit_cogs_cents=1_200,
+            has_research_fund=True,
+        ),
+        _line(
+            product_id=2,
+            qty=1,
+            unit_price_cents=1_800,
+            unit_cogs_cents=900,
+            has_research_fund=True,
+        ),
+    )
+    off = _validated(lines, donation_bps=DONATION_BPS_OFF)
+    _assert_split(
+        off,
+        subtotal_cents=6_600,
+        cogs_total_cents=3_300,
+        platform_fee_cents=50,
+        provider_payout_cents=3_250,
+        donation_cents=0,
+        donation_bps=DONATION_BPS_OFF,
+    )
+    assert tuple(line.donation_cents for line in off.lines) == (0, 0)
+
+    on = _validated(lines, donation_bps=DONATION_BPS_ON)
+    _assert_split(
+        on,
+        subtotal_cents=6_600,
+        cogs_total_cents=3_300,
+        platform_fee_cents=50,
+        provider_payout_cents=3_085,
+        donation_cents=165,
+        donation_bps=DONATION_BPS_ON,
+    )
+    assert on.lines[0].line_margin_cents == 2_400
+    assert on.lines[0].donation_cents == 120
+    assert on.lines[1].line_margin_cents == 900
+    assert on.lines[1].donation_cents == 45
+
+
+def test_donation_rounds_down_per_line() -> None:
+    # margin 199 → (199 × 500) // 10000 = 9
+    split = _validated(
+        (_line(unit_price_cents=1_199, unit_cogs_cents=1_000, has_research_fund=True),),
+        donation_bps=DONATION_BPS_ON,
+    )
+    assert split.lines[0].line_margin_cents == 199
+    assert split.lines[0].donation_cents == 9
+    assert split.donation_cents == 9
+
+
+def test_line_without_research_fund_donates_zero_when_donation_is_on() -> None:
+    split = _validated(
+        (
+            _line(
+                product_id=1,
+                unit_price_cents=2_400,
+                unit_cogs_cents=1_200,
+                has_research_fund=False,
+            ),
+            _line(
+                product_id=2,
+                unit_price_cents=1_800,
+                unit_cogs_cents=900,
+                has_research_fund=True,
+            ),
+        ),
+        donation_bps=DONATION_BPS_ON,
+    )
+    assert split.lines[0].donation_cents == 0
+    assert split.lines[1].donation_cents == 45
+    assert split.donation_cents == 45
+
+
+def test_donation_exceeds_payout_only_when_the_order_pays_out_without_it() -> None:
+    # $27.00 price, $26.80 COGS: margin 20, fee (2700×75+5000)//10000 = 20,
+    # so payout is exactly 0 without a donation. Donation (20×500)//10000 = 1
+    # would make it −1: the donation is what breaks it.
+    thin = (_line(unit_price_cents=2_700, unit_cogs_cents=2_680, has_research_fund=True),)
+    assert validate_order(thin, FEE_BPS_DEFAULT).provider_payout_cents == 0
+    with pytest.raises(PricingError) as exc_info:
+        validate_order(thin, FEE_BPS_DEFAULT, donation_bps=DONATION_BPS_ON)
+    assert exc_info.value.code == "DONATION_EXCEEDS_PAYOUT"
+    assert exc_info.value.detail == _DONATION_EXCEEDS_DETAIL
+
+
+def test_price_too_low_is_negative_payout_even_with_donation_on() -> None:
+    # $27.40 price, $27.20 COGS: margin 20, fee (2740×75+5000)//10000 = 21,
+    # so payout is −1 before any donation (donation would be 1 → −2). The price
+    # is the problem; turning the donation off would not help.
+    too_low = (_line(unit_price_cents=2_740, unit_cogs_cents=2_720, has_research_fund=True),)
+    split = compute_split(too_low, FEE_BPS_DEFAULT, DONATION_BPS_ON)
+    assert (split.donation_cents, split.provider_payout_cents) == (1, -2)
+    with pytest.raises(PricingError) as exc_info:
+        validate_order(too_low, FEE_BPS_DEFAULT, donation_bps=DONATION_BPS_ON)
+    assert exc_info.value.code == "NEGATIVE_PAYOUT"
 
 
 def test_money_module_imports_nothing_from_fastapi_sqlalchemy_or_app() -> None:

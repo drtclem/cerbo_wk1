@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
 import {
+  DONATION_MATCHES_LABEL,
   LEDGER_MATCHES_LABEL,
   SPLIT_ADDS_UP_LABEL,
   feeMatchesLabel,
@@ -20,6 +21,7 @@ test("feeRateLabel prints whole percents and sub-percent rates from basis points
 
 test("integrity checklist uses the design's plain-language labels", () => {
   expect(feeMatchesLabel(75)).toBe("Fee matches the 0.75% formula");
+  expect(DONATION_MATCHES_LABEL).toBe("Donation matches the rate");
   expect(SPLIT_ADDS_UP_LABEL).toBe("Split adds up to the subtotal");
   expect(LEDGER_MATCHES_LABEL).toBe("Ledger matches the split");
 });

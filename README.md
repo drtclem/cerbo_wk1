@@ -87,13 +87,13 @@ Dr. Patel's catalog is already enabled at the suggested prices. This walkthrough
 
 1. Open **New order**.
 2. Choose patient **Jane Doe**. Add **Magnesium Glycinate** and set Qty to `2` (unit price stays `$24.00`). Add **Vitamin D3 + K2** and leave Qty at `1` (unit price `$18.00`).
-3. The live preview should show subtotal **$66.00**, COGS **$33.00**, platform fee **$0.50**, and you receive **$32.50**. Click **Continue**, then **Confirm**.
+3. In the order summary, turn **on** **Donate 5% of my margin to medical research** (remembered in this browser as the provider default). Margins are **$24.00** and **$9.00** → donations **$1.20** (American Migraine Foundation) and **$0.45** (ASBMR) → total donation **$1.65**. The live preview should show subtotal **$66.00**, COGS **$33.00**, platform fee **$0.50**, research donation **$1.65**, and you receive **$30.85**. Each line shows its fund name (click for description and Learn more). Note: *Example organizations for this demo. Not affiliated; no donations are made.* Click **Continue**, then **Confirm**.
 4. The created screen shows a patient link such as `/orders/1`.
-5. Switch **Viewing as** to **Jane Doe (patient)**. The app opens **My orders**. Open the new order.
+5. Switch **Viewing as** to **Jane Doe (patient)**. The app opens **My orders**. Open the new order. The page says Dr. Maya Patel is donating part of their earnings to medical research and lists the fund names with links — **no donation amounts**.
 6. Set **Payment method** to **Decline test card** and click **Pay**. The page shows "Payment was declined." and the status stays **Pending payment**.
-7. Set **Payment method** to **OK test card** and click **Pay**. The page becomes a receipt with status **Paid** and total **$66.00**.
-8. Switch **Viewing as** back to **Dr. Maya Patel (provider)** and open **Dashboard**. GMV is **$66.00**, platform fees **$0.50**, and earnings **$32.50**. Paid orders lists Jane Doe with those same amounts. Units sold are Magnesium Glycinate **2** and Vitamin D3 + K2 **1**. Pending orders is empty.
-9. Click **Audit** on that paid order. Lines, the split, and the ledger (patient payment $66.00, Cerbo COGS $33.00, Cerbo fee $0.50, provider payable $32.50) match. All three integrity checks are marked ✓: fee matches formula, split adds up, and ledger matches split.
+7. Set **Payment method** to **OK test card** and click **Pay**. The page becomes a receipt with status **Paid** and total **$66.00** (still no donation amounts for the patient).
+8. Switch **Viewing as** back to **Dr. Maya Patel (provider)** and open **Dashboard**. GMV is **$66.00**, platform fees **$0.50**, donated to research **$1.65**, and earnings **$30.85**. Paid orders lists Jane Doe with those same amounts. Units sold are Magnesium Glycinate **2** and Vitamin D3 + K2 **1**. Pending orders is empty.
+9. Click **Audit** on that paid order. Lines, the split, and the ledger match: patient payment **$66.00**, Cerbo COGS **$33.00**, Cerbo fee **$0.50**, research donation **$1.20** (American Migraine Foundation), research donation **$0.45** (ASBMR), provider payable **$30.85**. All four integrity checks are marked ✓: fee matches formula, donation matches the rate, split adds up, and ledger matches split.
 10. Click **Log out**. The login screen returns and the database is reset for the next visitor.
 
 ## What's stubbed

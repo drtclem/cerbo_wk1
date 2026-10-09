@@ -100,7 +100,10 @@ export function DashboardPage({ userId }: { userId: number }) {
   const orderWord = paidCount === 1 ? "order" : "orders";
   // Remainder of API cents so the totals bar can draw COGS. Not a fee calculation.
   const totalsCogsCents =
-    dashboard.gmv_cents - dashboard.platform_fee_cents - dashboard.earnings_cents;
+    dashboard.gmv_cents -
+    dashboard.platform_fee_cents -
+    dashboard.donation_cents -
+    dashboard.earnings_cents;
 
   return (
     <div className="page">
@@ -109,10 +112,14 @@ export function DashboardPage({ userId }: { userId: number }) {
         You&apos;ve earned <Money cents={dashboard.earnings_cents} emphasize /> from {paidCount}{" "}
         paid {orderWord}.
       </p>
+      <p className="dashboard-donation">
+        Donated to research <Money cents={dashboard.donation_cents} />
+      </p>
       <SplitBar
         subtotalCents={dashboard.gmv_cents}
         cogsCents={totalsCogsCents}
         feeCents={dashboard.platform_fee_cents}
+        donationCents={dashboard.donation_cents}
         payoutCents={dashboard.earnings_cents}
         subtotalCaption="GMV"
       />
@@ -141,7 +148,10 @@ export function DashboardPage({ userId }: { userId: number }) {
               <tbody>
                 {dashboard.paid_orders.map((order) => {
                   const cogsCents =
-                    order.subtotal_cents - order.platform_fee_cents - order.provider_payout_cents;
+                    order.subtotal_cents -
+                    order.platform_fee_cents -
+                    order.donation_cents -
+                    order.provider_payout_cents;
                   return (
                     <tr key={order.id}>
                       <td>{orderDateLabel(order.paid_at)}</td>
@@ -164,6 +174,7 @@ export function DashboardPage({ userId }: { userId: number }) {
                           subtotalCents={order.subtotal_cents}
                           cogsCents={cogsCents}
                           feeCents={order.platform_fee_cents}
+                          donationCents={order.donation_cents}
                           payoutCents={order.provider_payout_cents}
                         />
                       </td>

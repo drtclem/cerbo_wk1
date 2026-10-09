@@ -314,6 +314,8 @@ export interface components {
             amount_cents: number;
             /** Created At */
             created_at: string;
+            /** Fund Id */
+            fund_id: number | null;
         };
         /** AuditLineResponse */
         AuditLineResponse: {
@@ -333,6 +335,14 @@ export interface components {
             line_cogs_cents: number;
             /** Line Margin Cents */
             line_margin_cents: number;
+            /** Donation Cents */
+            donation_cents: number;
+            /** Fund Id */
+            fund_id: number | null;
+            /** Fund Name */
+            fund_name: string | null;
+            /** Fund Url */
+            fund_url: string | null;
         };
         /** AuditResponse */
         AuditResponse: {
@@ -354,12 +364,18 @@ export interface components {
             fee_bps: number;
             /** Platform Fee Cents */
             platform_fee_cents: number;
+            /** Donation Bps */
+            donation_bps: number;
+            /** Donation Cents */
+            donation_cents: number;
             /** Provider Payout Cents */
             provider_payout_cents: number;
             /** Ledger */
             ledger: components["schemas"]["AuditLedgerResponse"][];
             /** Recomputed Fee Matches */
             recomputed_fee_matches: boolean;
+            /** Donation Matches Rate */
+            donation_matches_rate: boolean;
             /** Split Adds Up */
             split_adds_up: boolean;
             /** Ledger Matches Split */
@@ -401,6 +417,11 @@ export interface components {
             patient_id: number;
             /** Lines */
             lines: components["schemas"]["CreateLineRequest"][];
+            /**
+             * Donate
+             * @default false
+             */
+            donate?: boolean;
         };
         /** DashboardResponse */
         DashboardResponse: {
@@ -408,6 +429,8 @@ export interface components {
             gmv_cents: number;
             /** Platform Fee Cents */
             platform_fee_cents: number;
+            /** Donation Cents */
+            donation_cents: number;
             /** Earnings Cents */
             earnings_cents: number;
             /** Paid Orders */
@@ -444,6 +467,16 @@ export interface components {
             dosing: string;
             /** Note */
             note: string | null;
+            /** Donation Cents */
+            donation_cents: number;
+            /** Fund Id */
+            fund_id: number | null;
+            /** Fund Name */
+            fund_name: string | null;
+            /** Fund Url */
+            fund_url: string | null;
+            /** Fund Description */
+            fund_description: string | null;
         };
         /** OrderResponse */
         OrderResponse: {
@@ -475,6 +508,10 @@ export interface components {
             fee_bps: number;
             /** Platform Fee Cents */
             platform_fee_cents: number;
+            /** Donation Bps */
+            donation_bps: number;
+            /** Donation Cents */
+            donation_cents: number;
             /** Provider Payout Cents */
             provider_payout_cents: number;
         };
@@ -492,6 +529,8 @@ export interface components {
             subtotal_cents: number;
             /** Platform Fee Cents */
             platform_fee_cents: number;
+            /** Donation Cents */
+            donation_cents: number;
             /** Provider Payout Cents */
             provider_payout_cents: number;
             /** Audit Link */
@@ -543,11 +582,26 @@ export interface components {
             line_margin_cents: number;
             /** Stock Available */
             stock_available: number;
+            /** Donation Cents */
+            donation_cents: number;
+            /** Fund Id */
+            fund_id: number | null;
+            /** Fund Name */
+            fund_name: string | null;
+            /** Fund Url */
+            fund_url: string | null;
+            /** Fund Description */
+            fund_description: string | null;
         };
         /** PreviewRequest */
         PreviewRequest: {
             /** Lines */
             lines: components["schemas"]["PreviewLineRequest"][];
+            /**
+             * Donate
+             * @default false
+             */
+            donate?: boolean;
         };
         /** PreviewResponse */
         PreviewResponse: {
@@ -561,6 +615,10 @@ export interface components {
             fee_bps: number;
             /** Platform Fee Cents */
             platform_fee_cents: number;
+            /** Donation Bps */
+            donation_bps: number;
+            /** Donation Cents */
+            donation_cents: number;
             /** Provider Payout Cents */
             provider_payout_cents: number;
         };

@@ -31,3 +31,6 @@ Create any of these that don't exist yet and are relevant. Don't create empty pl
 
 ## Output
 A short list of the diagram files you created or updated, what changed in each, and any code-vs-architecture mismatches you found.
+
+## Git
+Never run git commands that change history or branches (checkout, switch, branch, commit, push, reset, stash, merge, rebase), and never open pull requests. Read-only git is fine. Leave changes uncommitted; the human commits.

@@ -78,6 +78,7 @@ class PreviewRequest(BaseModel):
     model_config = ConfigDict(strict=True)
 
     lines: list[PreviewLineRequest]
+    donate: bool = False
 
 
 class PreviewLineResponse(BaseModel):
@@ -89,6 +90,11 @@ class PreviewLineResponse(BaseModel):
     line_cogs_cents: int
     line_margin_cents: int
     stock_available: int
+    donation_cents: int
+    fund_id: int | None
+    fund_name: str | None
+    fund_url: str | None
+    fund_description: str | None
 
 
 class PreviewResponse(BaseModel):
@@ -97,6 +103,8 @@ class PreviewResponse(BaseModel):
     cogs_total_cents: int
     fee_bps: int
     platform_fee_cents: int
+    donation_bps: int
+    donation_cents: int
     provider_payout_cents: int
 
 
@@ -146,14 +154,23 @@ def _response(result: PreviewResult) -> PreviewResponse:
                 line_total_cents=line.line_total_cents,
                 line_cogs_cents=line.line_cogs_cents,
                 line_margin_cents=line.line_margin_cents,
-                stock_available=stock,
+                stock_available=extra.stock_available,
+                donation_cents=line.donation_cents,
+                fund_id=extra.fund.fund_id if extra.fund is not None else None,
+                fund_name=extra.fund.fund_name if extra.fund is not None else None,
+                fund_url=extra.fund.fund_url if extra.fund is not None else None,
+                fund_description=(
+                    extra.fund.fund_description if extra.fund is not None else None
+                ),
             )
-            for line, stock in zip(split.lines, result.stock_available, strict=True)
+            for line, extra in zip(split.lines, result.line_extras, strict=True)
         ],
         subtotal_cents=split.subtotal_cents,
         cogs_total_cents=split.cogs_total_cents,
         fee_bps=split.fee_bps,
         platform_fee_cents=split.platform_fee_cents,
+        donation_bps=split.donation_bps,
+        donation_cents=split.donation_cents,
         provider_payout_cents=split.provider_payout_cents,
     )
 
@@ -165,7 +182,9 @@ def post_order_preview(
     user: Annotated[User, Depends(require_role("provider"))],
 ) -> PreviewResponse:
     try:
-        result = preview_order(session, user.id, _preview_lines(body.lines))
+        result = preview_order(
+            session, user.id, _preview_lines(body.lines), donate=body.donate
+        )
     except ProductUnavailable as exc:
         raise APIError(422, "PRODUCT_UNAVAILABLE", _UNAVAILABLE, exc.line_index) from None
     return _response(result)
@@ -176,6 +195,7 @@ class CreateOrderRequest(BaseModel):
 
     patient_id: int
     lines: list[CreateLineRequest]
+    donate: bool = False
 
 
 class PayRequest(BaseModel):
@@ -195,6 +215,11 @@ class OrderLineResponse(BaseModel):
     line_margin_cents: int
     dosing: str
     note: str | None
+    donation_cents: int
+    fund_id: int | None
+    fund_name: str | None
+    fund_url: str | None
+    fund_description: str | None
 
 
 class OrderResponse(BaseModel):
@@ -212,6 +237,8 @@ class OrderResponse(BaseModel):
     cogs_total_cents: int
     fee_bps: int
     platform_fee_cents: int
+    donation_bps: int
+    donation_cents: int
     provider_payout_cents: int
 
 
@@ -242,6 +269,11 @@ def _line_response(line: OrderLineView) -> OrderLineResponse:
         line_margin_cents=line.line_margin_cents,
         dosing=line.dosing,
         note=line.note,
+        donation_cents=line.donation_cents,
+        fund_id=line.fund_id,
+        fund_name=line.fund_name,
+        fund_url=line.fund_url,
+        fund_description=line.fund_description,
     )
 
 
@@ -261,6 +293,8 @@ def _order_response(view: OrderView) -> OrderResponse:
         cogs_total_cents=view.cogs_total_cents,
         fee_bps=view.fee_bps,
         platform_fee_cents=view.platform_fee_cents,
+        donation_bps=view.donation_bps,
+        donation_cents=view.donation_cents,
         provider_payout_cents=view.provider_payout_cents,
     )
 
@@ -286,6 +320,7 @@ def post_order(
             body.patient_id,
             _create_lines(body.lines),
             notifier,
+            donate=body.donate,
         )
     except InvalidPatient:
         raise APIError(422, "INVALID_PATIENT", "Patient must be a patient user.") from None
@@ -302,7 +337,7 @@ def get_order_detail(
 ) -> OrderResponse:
     order = _load_order(session, order_id)
     require_order_access(order, user)
-    return _order_response(present_order(order, order_lines(session, order.id)))
+    return _order_response(present_order(session, order, order_lines(session, order.id)))
 
 
 @router.get("/patient/orders", response_model=list[OrderResponse])
@@ -313,7 +348,9 @@ def get_patient_orders(
     views: list[OrderResponse] = []
     for order in list_patient_orders(session, user.id):
         require_order_access(order, user)
-        views.append(_order_response(present_order(order, order_lines(session, order.id))))
+        views.append(
+            _order_response(present_order(session, order, order_lines(session, order.id)))
+        )
     return views
 
 

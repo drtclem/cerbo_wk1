@@ -28,6 +28,8 @@ _SPLIT_FIELDS = (
     "cogs_total_cents",
     "fee_bps",
     "platform_fee_cents",
+    "donation_bps",
+    "donation_cents",
     "provider_payout_cents",
 )
 _LINE_MONEY = (
@@ -42,6 +44,7 @@ _LINE_MONEY = (
 _DASHBOARD_KEYS = {
     "gmv_cents",
     "platform_fee_cents",
+    "donation_cents",
     "earnings_cents",
     "paid_orders",
     "units_sold",
@@ -57,9 +60,12 @@ _AUDIT_KEYS = {
     "cogs_total_cents",
     "fee_bps",
     "platform_fee_cents",
+    "donation_bps",
+    "donation_cents",
     "provider_payout_cents",
     "ledger",
     "recomputed_fee_matches",
+    "donation_matches_rate",
     "split_adds_up",
     "ledger_matches_split",
 }
@@ -260,6 +266,8 @@ def _assert_matches_split(body: dict[str, object], expected: OrderSplit) -> None
         expected.cogs_total_cents,
         expected.fee_bps,
         expected.platform_fee_cents,
+        expected.donation_bps,
+        expected.donation_cents,
         expected.provider_payout_cents,
     )
     assert _line_money(body) == tuple(
@@ -299,6 +307,7 @@ def _ids(body: dict[str, object], key: str) -> list[int]:
 def _assert_unpaid_dashboard(body: dict[str, object], pending_ids: list[int]) -> None:
     assert _require_int(body["gmv_cents"]) == 0
     assert _require_int(body["platform_fee_cents"]) == 0
+    assert _require_int(body["donation_cents"]) == 0
     assert _require_int(body["earnings_cents"]) == 0
     assert _ids(body, "paid_orders") == []
     assert body["units_sold"] == []
@@ -402,6 +411,7 @@ def test_order_decline_then_pay_dashboard_and_audit_match_to_the_cent(
         dashboard = _dashboard(client, provider_id)
         assert _require_int(dashboard["gmv_cents"]) == expected.subtotal_cents
         assert _require_int(dashboard["platform_fee_cents"]) == expected.platform_fee_cents
+        assert _require_int(dashboard["donation_cents"]) == expected.donation_cents
         assert _require_int(dashboard["earnings_cents"]) == expected.provider_payout_cents
         assert _ids(dashboard, "pending_orders") == []
         paid_orders = [
@@ -450,10 +460,14 @@ def test_order_decline_then_pay_dashboard_and_audit_match_to_the_cent(
         assert amounts["provider_payable"] == expected.provider_payout_cents
         assert amounts["patient_payment"] == _require_int(audit["subtotal_cents"])
         allocated = (
-            amounts["cerbo_cogs"] + amounts["cerbo_fee"] + amounts["provider_payable"]
+            amounts["cerbo_cogs"]
+            + amounts["cerbo_fee"]
+            + amounts["provider_payable"]
+            + expected.donation_cents
         )
         assert allocated == amounts["patient_payment"]
         assert audit["recomputed_fee_matches"] is True
+        assert audit["donation_matches_rate"] is True
         assert audit["split_adds_up"] is True
         assert audit["ledger_matches_split"] is True
 

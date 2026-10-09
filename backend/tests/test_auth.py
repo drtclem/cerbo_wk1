@@ -81,9 +81,11 @@ def _seeded_order(tmp_path: Path) -> Iterator[tuple[Order, dict[str, User]]]:
                     patient_id=patient_id,
                     status="pending_payment",
                     fee_bps=75,
+                    donation_bps=0,
                     subtotal_cents=100,
                     cogs_total_cents=40,
                     platform_fee_cents=10,
+                    donation_cents=0,
                     provider_payout_cents=50,
                     created_at=_CREATED_AT,
                 )

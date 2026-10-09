@@ -30,6 +30,7 @@ class PaidOrderResponse(BaseModel):
     patient_name: str
     subtotal_cents: int
     platform_fee_cents: int
+    donation_cents: int
     provider_payout_cents: int
     audit_link: str
 
@@ -50,6 +51,7 @@ class PendingOrderResponse(BaseModel):
 class DashboardResponse(BaseModel):
     gmv_cents: int
     platform_fee_cents: int
+    donation_cents: int
     earnings_cents: int
     paid_orders: list[PaidOrderResponse]
     units_sold: list[UnitSoldResponse]
@@ -65,12 +67,17 @@ class AuditLineResponse(BaseModel):
     line_total_cents: int
     line_cogs_cents: int
     line_margin_cents: int
+    donation_cents: int
+    fund_id: int | None
+    fund_name: str | None
+    fund_url: str | None
 
 
 class AuditLedgerResponse(BaseModel):
     entry_type: str
     amount_cents: int
     created_at: str
+    fund_id: int | None
 
 
 class AuditResponse(BaseModel):
@@ -83,9 +90,12 @@ class AuditResponse(BaseModel):
     cogs_total_cents: int
     fee_bps: int
     platform_fee_cents: int
+    donation_bps: int
+    donation_cents: int
     provider_payout_cents: int
     ledger: list[AuditLedgerResponse]
     recomputed_fee_matches: bool
+    donation_matches_rate: bool
     split_adds_up: bool
     ledger_matches_split: bool
 
@@ -98,6 +108,7 @@ def _paid_order(item: PaidOrderSummary) -> PaidOrderResponse:
         patient_name=item.patient_name,
         subtotal_cents=item.subtotal_cents,
         platform_fee_cents=item.platform_fee_cents,
+        donation_cents=item.donation_cents,
         provider_payout_cents=item.provider_payout_cents,
         audit_link=item.audit_link,
     )
@@ -124,6 +135,7 @@ def _dashboard(view: Dashboard) -> DashboardResponse:
     return DashboardResponse(
         gmv_cents=view.gmv_cents,
         platform_fee_cents=view.platform_fee_cents,
+        donation_cents=view.donation_cents,
         earnings_cents=view.earnings_cents,
         paid_orders=[_paid_order(item) for item in view.paid_orders],
         units_sold=[_unit(item) for item in view.units_sold],
@@ -141,6 +153,10 @@ def _audit_line(line: AuditLine) -> AuditLineResponse:
         line_total_cents=line.line_total_cents,
         line_cogs_cents=line.line_cogs_cents,
         line_margin_cents=line.line_margin_cents,
+        donation_cents=line.donation_cents,
+        fund_id=line.fund_id,
+        fund_name=line.fund_name,
+        fund_url=line.fund_url,
     )
 
 
@@ -149,6 +165,7 @@ def _audit_entry(entry: AuditLedgerEntry) -> AuditLedgerResponse:
         entry_type=entry.entry_type,
         amount_cents=entry.amount_cents,
         created_at=entry.created_at,
+        fund_id=entry.fund_id,
     )
 
 
@@ -163,9 +180,12 @@ def _audit(view: OrderAudit) -> AuditResponse:
         cogs_total_cents=view.cogs_total_cents,
         fee_bps=view.fee_bps,
         platform_fee_cents=view.platform_fee_cents,
+        donation_bps=view.donation_bps,
+        donation_cents=view.donation_cents,
         provider_payout_cents=view.provider_payout_cents,
         ledger=[_audit_entry(entry) for entry in view.ledger],
         recomputed_fee_matches=view.recomputed_fee_matches,
+        donation_matches_rate=view.donation_matches_rate,
         split_adds_up=view.split_adds_up,
         ledger_matches_split=view.ledger_matches_split,
     )

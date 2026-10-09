@@ -2,10 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ApiError, apiGet, apiSend, errorText } from "../api/client.ts";
 import type { components } from "../api/schema.ts";
+import { DemoFundNote, FundDisclosure } from "../components/FundDisclosure.tsx";
 import { InlineError } from "../components/InlineError.tsx";
 import { Money } from "../components/Money.tsx";
 import type { User } from "../components/RoleSwitcher.tsx";
 import { SplitBar } from "../components/SplitBar.tsx";
+import { readDonateDefault, writeDonateDefault } from "../lib/donation.ts";
 import { formatCents, parseDollarsToCents } from "../lib/money.ts";
 import { stockOverWarning } from "../lib/stock.ts";
 
@@ -38,7 +40,11 @@ type Step = "build" | "review" | "created";
 
 type SplitFigures = Pick<
   PreviewResponse,
-  "subtotal_cents" | "cogs_total_cents" | "platform_fee_cents" | "provider_payout_cents"
+  | "subtotal_cents"
+  | "cogs_total_cents"
+  | "platform_fee_cents"
+  | "donation_cents"
+  | "provider_payout_cents"
 >;
 
 const PREVIEW_DELAY_MS = 300;
@@ -104,8 +110,8 @@ function readyLines(lines: DraftLine[]): ReadyLine[] | null {
   return ready;
 }
 
-function lineSignature(ready: ReadyLine[]): string {
-  return JSON.stringify(ready);
+function lineSignature(ready: ReadyLine[], donate: boolean): string {
+  return JSON.stringify({ lines: ready, donate });
 }
 
 function productById(
@@ -150,6 +156,15 @@ function SplitFigures({
       </div>
       <div>
         <dt>
+          <span className="swatch swatch--donation" aria-hidden="true" />
+          Research donation
+        </dt>
+        <dd>
+          <Money cents={split.donation_cents} />
+        </dd>
+      </div>
+      <div>
+        <dt>
           <span className="swatch swatch--payout" aria-hidden="true" />
           You receive
         </dt>
@@ -161,17 +176,43 @@ function SplitFigures({
   );
 }
 
+function DonateSwitch({
+  donate,
+  onChange,
+}: {
+  donate: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label className="donate-switch">
+      <input
+        type="checkbox"
+        checked={donate}
+        onChange={(event) => {
+          onChange(event.target.checked);
+        }}
+      />
+      Donate 5% of my margin to medical research
+    </label>
+  );
+}
+
 function OrderSummary({
   split,
   subtotalLabel,
+  donate,
+  onDonateChange,
   children,
 }: {
   split: SplitFigures | null;
   subtotalLabel: string;
+  donate: boolean;
+  onDonateChange: (next: boolean) => void;
   children: ReactNode;
 }) {
   return (
     <aside className="summary panel panel--sticky">
+      <DonateSwitch donate={donate} onChange={onDonateChange} />
       {split !== null ? (
         <>
           <div className="summary__bar">
@@ -179,6 +220,7 @@ function OrderSummary({
               subtotalCents={split.subtotal_cents}
               cogsCents={split.cogs_total_cents}
               feeCents={split.platform_fee_cents}
+              donationCents={split.donation_cents}
               payoutCents={split.provider_payout_cents}
               subtotalCaption={subtotalLabel}
             />
@@ -207,8 +249,14 @@ export function NewOrderPage({ userId }: { userId: number }) {
   const [busy, setBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [created, setCreated] = useState<OrderResponse | null>(null);
+  const [donate, setDonate] = useState(() => readDonateDefault());
   const lineKey = useRef(1);
   const confirming = useRef(false);
+
+  function setDonateDefault(next: boolean) {
+    setDonate(next);
+    writeDonateDefault(next);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -238,10 +286,13 @@ export function NewOrderPage({ userId }: { userId: number }) {
     if (ready === null) {
       return;
     }
-    const signature = lineSignature(ready);
+    const signature = lineSignature(ready, donate);
     let cancelled = false;
     const timer = setTimeout(() => {
-      apiSend<PreviewResponse>("/orders/preview", userId, "POST", { lines: ready })
+      apiSend<PreviewResponse>("/orders/preview", userId, "POST", {
+        lines: ready,
+        donate,
+      })
         .then((body) => {
           if (cancelled) {
             return;
@@ -267,7 +318,7 @@ export function NewOrderPage({ userId }: { userId: number }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [lines, userId]);
+  }, [lines, donate, userId]);
 
   if (loadError !== null) {
     return <InlineError message={loadError} />;
@@ -285,7 +336,7 @@ export function NewOrderPage({ userId }: { userId: number }) {
         ? String(enabled[0].product_id)
         : "";
   const ready = readyLines(lines);
-  const signature = ready === null ? null : lineSignature(ready);
+  const signature = ready === null ? null : lineSignature(ready, donate);
   const shownPreview = preview !== null && previewFor === signature ? preview : null;
   const patient = patients.find((user) => user.id === patientId) ?? null;
   const canContinue = patient !== null && shownPreview !== null && previewProblem === null;
@@ -336,6 +387,7 @@ export function NewOrderPage({ userId }: { userId: number }) {
     try {
       const order = await apiSend<OrderResponse>("/orders", userId, "POST", {
         patient_id: patientId,
+        donate,
         lines: shownPreview.lines.map((line, index) => {
           const draft = lines[index];
           const note = draft?.note.trim() ?? "";
@@ -392,32 +444,42 @@ export function NewOrderPage({ userId }: { userId: number }) {
             </dl>
           ) : null}
           {shownPreview !== null ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Product</th>
-                    <th className="num">Qty</th>
-                    <th className="num">Unit price</th>
-                    <th className="num">Line total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shownPreview.lines.map((line, index) => (
-                    <ReviewLine
-                      key={`${line.product_id}-${index}`}
-                      line={line}
-                      productName={productById(products, line.product_id)?.name ?? "Product"}
-                      dosing={lines[index]?.dosing.trim() ?? ""}
-                      note={lines[index]?.note.trim() ?? ""}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th className="num">Qty</th>
+                      <th className="num">Unit price</th>
+                      <th className="num">Line total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shownPreview.lines.map((line, index) => (
+                      <ReviewLine
+                        key={`${line.product_id}-${index}`}
+                        line={line}
+                        productName={productById(products, line.product_id)?.name ?? "Product"}
+                        dosing={lines[index]?.dosing.trim() ?? ""}
+                        note={lines[index]?.note.trim() ?? ""}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {shownPreview.lines.some((line) => line.fund_name !== null) ? (
+                <DemoFundNote />
+              ) : null}
+            </>
           ) : null}
         </div>
-        <OrderSummary split={shownPreview} subtotalLabel="Patient pays">
+        <OrderSummary
+          split={shownPreview}
+          subtotalLabel="Patient pays"
+          donate={donate}
+          onDonateChange={setDonateDefault}
+        >
           <p className="muted">Later catalog changes don&apos;t affect this order.</p>
           {reviewError !== null ? <InlineError message={reviewError} /> : null}
           <div className="btn-row">
@@ -543,6 +605,9 @@ export function NewOrderPage({ userId }: { userId: number }) {
                       dosing={line.dosing}
                       note={line.note}
                       lineTotalCents={priced?.line_total_cents}
+                      fundName={priced?.fund_name ?? null}
+                      fundUrl={priced?.fund_url ?? null}
+                      fundDescription={priced?.fund_description ?? null}
                       message={message}
                       stockWarning={stockWarning}
                       onQty={(qty) => {
@@ -575,8 +640,17 @@ export function NewOrderPage({ userId }: { userId: number }) {
             </table>
           </div>
         ) : null}
+        {shownPreview !== null &&
+        shownPreview.lines.some((line) => line.fund_name !== null) ? (
+          <DemoFundNote />
+        ) : null}
       </div>
-      <OrderSummary split={shownPreview} subtotalLabel="Subtotal">
+      <OrderSummary
+        split={shownPreview}
+        subtotalLabel="Subtotal"
+        donate={donate}
+        onDonateChange={setDonateDefault}
+      >
         {orderProblem !== null ? <InlineError message={orderProblem} /> : null}
         <div className="btn-row">
           <button
@@ -605,6 +679,9 @@ function DraftRow({
   dosing,
   note,
   lineTotalCents,
+  fundName,
+  fundUrl,
+  fundDescription,
   message,
   stockWarning,
   onQty,
@@ -621,6 +698,9 @@ function DraftRow({
   dosing: string;
   note: string;
   lineTotalCents: number | undefined;
+  fundName: string | null;
+  fundUrl: string | null;
+  fundDescription: string | null;
   message: string | null;
   stockWarning: string | null;
   onQty: (qty: string) => void;
@@ -632,7 +712,17 @@ function DraftRow({
   return (
     <>
       <tr>
-        <td className="cell-title">{name}</td>
+        <td className="cell-title">
+          {name}
+          {fundName !== null ? (
+            <FundDisclosure
+              name={fundName}
+              url={fundUrl}
+              description={fundDescription}
+              showNote={false}
+            />
+          ) : null}
+        </td>
         <td className="nowrap">
           {stock !== null ? (
             <span className={outOfStock ? "stock stock--out" : "stock"}>{stock}</span>
@@ -734,6 +824,14 @@ function ReviewLine({
         <div className="cell-title">{productName}</div>
         {dosing.length > 0 ? <div className="muted">{dosing}</div> : null}
         {note.length > 0 ? <div className="muted">{note}</div> : null}
+        {line.fund_name !== null ? (
+          <FundDisclosure
+            name={line.fund_name}
+            url={line.fund_url}
+            description={line.fund_description}
+            showNote={false}
+          />
+        ) : null}
       </td>
       <td className="num">{line.qty}</td>
       <td className="num">
@@ -750,6 +848,7 @@ function CreatedOrder({ order, patientName }: { order: OrderResponse; patientNam
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState<string | null>(null);
   const patientUrl = new URL(order.patient_link, window.location.origin).toString();
+  const funds = order.lines.filter((line) => line.fund_name !== null);
 
   async function copyLink() {
     try {
@@ -772,11 +871,28 @@ function CreatedOrder({ order, patientName }: { order: OrderResponse; patientNam
             subtotalCents={order.subtotal_cents}
             cogsCents={order.cogs_total_cents}
             feeCents={order.platform_fee_cents}
+            donationCents={order.donation_cents}
             payoutCents={order.provider_payout_cents}
             subtotalCaption="Patient pays"
           />
         </div>
         <SplitFigures split={order} subtotalLabel="Patient pays" />
+        {funds.length > 0 ? (
+          <div className="stack">
+            {funds.map((line, index) =>
+              line.fund_name !== null ? (
+                <FundDisclosure
+                  key={`${line.product_id}-${index}`}
+                  name={line.fund_name}
+                  url={line.fund_url}
+                  description={line.fund_description}
+                  showNote={false}
+                />
+              ) : null,
+            )}
+            <DemoFundNote />
+          </div>
+        ) : null}
         <div className="stack">
           <span className="field-label" id="patient-link-label">
             Patient link

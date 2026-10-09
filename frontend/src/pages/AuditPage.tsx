@@ -7,9 +7,15 @@ import { InlineError } from "../components/InlineError.tsx";
 import { Money } from "../components/Money.tsx";
 import { SplitBar } from "../components/SplitBar.tsx";
 import { StatusPill } from "../components/StatusPill.tsx";
-import { LEDGER_MATCHES_LABEL, SPLIT_ADDS_UP_LABEL, feeMatchesLabel } from "../lib/integrity.ts";
+import {
+  DONATION_MATCHES_LABEL,
+  LEDGER_MATCHES_LABEL,
+  SPLIT_ADDS_UP_LABEL,
+  feeMatchesLabel,
+} from "../lib/integrity.ts";
 
 type Audit = components["schemas"]["AuditResponse"];
+type AuditLine = components["schemas"]["AuditLineResponse"];
 type LedgerEntry = components["schemas"]["AuditLedgerResponse"];
 
 const MONTHS = [
@@ -31,6 +37,7 @@ const LEDGER_LABELS: Record<string, string> = {
   patient_payment: "Patient payment",
   cerbo_cogs: "Cerbo COGS",
   cerbo_fee: "Cerbo fee",
+  research_donation: "Research donation",
   provider_payable: "Provider payable",
 };
 
@@ -50,12 +57,28 @@ function paidDateLabel(paidAt: string): string {
 const LEDGER_RANK: Record<string, number> = {
   cerbo_cogs: 0,
   cerbo_fee: 1,
-  provider_payable: 2,
-  patient_payment: 3,
+  research_donation: 2,
+  provider_payable: 3,
+  patient_payment: 4,
 };
 
-function ledgerLabel(entryType: string): string {
-  return LEDGER_LABELS[entryType] ?? entryType;
+function fundNamesById(lines: AuditLine[]): Map<number, string> {
+  const names = new Map<number, string>();
+  for (const line of lines) {
+    if (line.fund_id !== null && line.fund_name !== null) {
+      names.set(line.fund_id, line.fund_name);
+    }
+  }
+  return names;
+}
+
+function ledgerLabel(entry: LedgerEntry, funds: Map<number, string>): string {
+  const base = LEDGER_LABELS[entry.entry_type] ?? entry.entry_type;
+  if (entry.entry_type !== "research_donation" || entry.fund_id === null) {
+    return base;
+  }
+  const fundName = funds.get(entry.fund_id);
+  return fundName !== undefined ? `${base} · ${fundName}` : base;
 }
 
 function orderedLedger(entries: LedgerEntry[]): LedgerEntry[] {
@@ -108,8 +131,10 @@ function AuditPage({ userId }: { userId: number }) {
   }
 
   const ledger = orderedLedger(audit.ledger);
+  const funds = fundNamesById(audit.lines);
   const checks = [
     { ok: audit.recomputed_fee_matches, label: feeMatchesLabel(audit.fee_bps) },
+    { ok: audit.donation_matches_rate, label: DONATION_MATCHES_LABEL },
     { ok: audit.split_adds_up, label: SPLIT_ADDS_UP_LABEL },
     { ok: audit.ledger_matches_split, label: LEDGER_MATCHES_LABEL },
   ];
@@ -144,7 +169,12 @@ function AuditPage({ userId }: { userId: number }) {
             <tbody>
               {audit.lines.map((line, index) => (
                 <tr key={`${line.product_id}-${index}`}>
-                  <td className="cell-title">{line.product_name}</td>
+                  <td className="cell-title">
+                    {line.product_name}
+                    {line.fund_name !== null ? (
+                      <div className="muted">{line.fund_name}</div>
+                    ) : null}
+                  </td>
                   <td className="num">{line.qty}</td>
                   <td className="num">
                     <Money cents={line.unit_price_cents} />
@@ -168,6 +198,7 @@ function AuditPage({ userId }: { userId: number }) {
           subtotalCents={audit.subtotal_cents}
           cogsCents={audit.cogs_total_cents}
           feeCents={audit.platform_fee_cents}
+          donationCents={audit.donation_cents}
           payoutCents={audit.provider_payout_cents}
         />
       </section>
@@ -185,12 +216,12 @@ function AuditPage({ userId }: { userId: number }) {
                 </tr>
               </thead>
               <tbody>
-                {ledger.map((entry) => (
+                {ledger.map((entry, index) => (
                   <tr
-                    key={entry.entry_type}
+                    key={`${entry.entry_type}-${entry.fund_id ?? "none"}-${index}`}
                     className={entry.entry_type === "patient_payment" ? "ledger__total" : undefined}
                   >
-                    <th scope="row">{ledgerLabel(entry.entry_type)}</th>
+                    <th scope="row">{ledgerLabel(entry, funds)}</th>
                     <td className="num">
                       <Money cents={entry.amount_cents} />
                     </td>

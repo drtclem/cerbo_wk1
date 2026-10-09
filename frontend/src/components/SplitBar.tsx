@@ -11,6 +11,7 @@ export function SplitBar({
   subtotalCents,
   cogsCents,
   feeCents,
+  donationCents,
   payoutCents,
   compact = false,
   subtotalCaption = "Patient pays",
@@ -19,6 +20,7 @@ export function SplitBar({
     subtotalCents,
     cogsCents,
     feeCents,
+    donationCents,
     payoutCents,
   });
 
@@ -32,7 +34,7 @@ export function SplitBar({
       <div
         className="split-bar__track"
         role="img"
-        aria-label={`COGS ${layout.cogsLabel}, fee ${layout.feeLabel}, you receive ${layout.payoutLabel}`}
+        aria-label={`COGS ${layout.cogsLabel}, fee ${layout.feeLabel}, research ${layout.donationLabel}, you receive ${layout.payoutLabel}`}
       >
         <span
           className="split-bar__seg split-bar__seg--cogs"
@@ -49,6 +51,15 @@ export function SplitBar({
           title={compact ? undefined : `Fee ${layout.feeLabel}`}
         />
         <span
+          className={
+            layout.donationPercent === 0
+              ? "split-bar__seg split-bar__seg--donation split-bar__seg--empty"
+              : "split-bar__seg split-bar__seg--donation"
+          }
+          style={{ width: `${layout.donationPercent}%` }}
+          title={compact ? undefined : `Research ${layout.donationLabel}`}
+        />
+        <span
           className="split-bar__seg split-bar__seg--payout"
           style={{ width: `${layout.payoutPercent}%` }}
           title={compact ? undefined : `You receive ${layout.payoutLabel}`}
@@ -58,6 +69,7 @@ export function SplitBar({
         <div className="split-bar__legend">
           <span className="split-bar__legend-cogs">COGS {layout.cogsLabel}</span>
           <span className="split-bar__legend-fee">Fee {layout.feeLabel}</span>
+          <span className="split-bar__legend-donation">Research {layout.donationLabel}</span>
           <span className="split-bar__legend-payout">You receive {layout.payoutLabel}</span>
         </div>
       ) : null}

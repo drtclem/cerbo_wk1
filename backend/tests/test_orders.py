@@ -32,6 +32,8 @@ _SPLIT_FIELDS = (
     "cogs_total_cents",
     "fee_bps",
     "platform_fee_cents",
+    "donation_bps",
+    "donation_cents",
     "provider_payout_cents",
 )
 _PREVIEW_LINE_FIELDS = (
@@ -43,6 +45,11 @@ _PREVIEW_LINE_FIELDS = (
     "line_cogs_cents",
     "line_margin_cents",
     "stock_available",
+    "donation_cents",
+    "fund_id",
+    "fund_name",
+    "fund_url",
+    "fund_description",
 )
 _PRICED_LINE_FIELDS = (
     "product_id",
@@ -52,6 +59,7 @@ _PRICED_LINE_FIELDS = (
     "line_total_cents",
     "line_cogs_cents",
     "line_margin_cents",
+    "donation_cents",
 )
 _ORDER_KEYS = {
     "id",
@@ -68,6 +76,8 @@ _ORDER_KEYS = {
     "cogs_total_cents",
     "fee_bps",
     "platform_fee_cents",
+    "donation_bps",
+    "donation_cents",
     "provider_payout_cents",
 }
 _LINE_KEYS = {
@@ -81,6 +91,11 @@ _LINE_KEYS = {
     "line_margin_cents",
     "dosing",
     "note",
+    "donation_cents",
+    "fund_id",
+    "fund_name",
+    "fund_url",
+    "fund_description",
 }
 _STORED_LINE_KEYS = {
     "product_id",
@@ -90,7 +105,22 @@ _STORED_LINE_KEYS = {
     "unit_cogs_cents",
     "dosing",
     "note",
+    "donation_cents",
+    "fund_id",
+    "fund_name",
+    "fund_url",
 }
+_PREVIEW_INT_FIELDS = (
+    "product_id",
+    "qty",
+    "unit_price_cents",
+    "unit_cogs_cents",
+    "line_total_cents",
+    "line_cogs_cents",
+    "line_margin_cents",
+    "stock_available",
+    "donation_cents",
+)
 _COUNTED_MODELS = (
     ("users", User),
     ("products", Product),
@@ -362,6 +392,10 @@ def _orders(application: FastAPI) -> list[dict[str, object]]:
                         "unit_cogs_cents": _require_int(line.unit_cogs_cents),
                         "dosing": line.dosing,
                         "note": line.note,
+                        "donation_cents": _require_int(line.donation_cents),
+                        "fund_id": line.fund_id,
+                        "fund_name": line.fund_name,
+                        "fund_url": line.fund_url,
                     }
                 )
             loaded.append(
@@ -371,9 +405,11 @@ def _orders(application: FastAPI) -> list[dict[str, object]]:
                     "patient_id": _require_int(order.patient_id),
                     "status": order.status,
                     "fee_bps": _require_int(order.fee_bps),
+                    "donation_bps": _require_int(order.donation_bps),
                     "subtotal_cents": _require_int(order.subtotal_cents),
                     "cogs_total_cents": _require_int(order.cogs_total_cents),
                     "platform_fee_cents": _require_int(order.platform_fee_cents),
+                    "donation_cents": _require_int(order.donation_cents),
                     "provider_payout_cents": _require_int(order.provider_payout_cents),
                     "payment_ref": order.payment_ref,
                     "created_at": order.created_at,
@@ -468,8 +504,12 @@ def _parse_preview(payload: object) -> dict[str, object]:
     for line_value in _require_list(body["lines"]):
         line = _require_dict(line_value)
         assert set(line) == set(_PREVIEW_LINE_FIELDS)
-        for field in _PREVIEW_LINE_FIELDS:
+        for field in _PREVIEW_INT_FIELDS:
             _require_int(line[field])
+        assert line["fund_id"] is None or isinstance(line["fund_id"], int)
+        assert line["fund_name"] is None or isinstance(line["fund_name"], str)
+        assert line["fund_url"] is None or isinstance(line["fund_url"], str)
+        assert line["fund_description"] is None or isinstance(line["fund_description"], str)
         lines.append(line)
     body["lines"] = lines
     return body
@@ -535,6 +575,13 @@ def _assert_pending_order(
         assert line_total_cents == unit_price_cents * qty
         assert line_cogs_cents == unit_cogs_cents * qty
         assert line_margin_cents == line_total_cents - line_cogs_cents
+        assert _require_int(response_line["donation_cents"]) == _require_int(
+            preview_line["donation_cents"]
+        )
+        assert response_line["fund_id"] == preview_line["fund_id"]
+        assert response_line["fund_name"] == preview_line["fund_name"]
+        assert response_line["fund_url"] == preview_line["fund_url"]
+        assert response_line["fund_description"] == preview_line["fund_description"]
     return body
 
 
@@ -577,6 +624,12 @@ def _assert_stored_matches(
         assert _require_int(stored_line["unit_cogs_cents"]) == _require_int(
             preview_line["unit_cogs_cents"]
         )
+        assert _require_int(stored_line["donation_cents"]) == _require_int(
+            preview_line["donation_cents"]
+        )
+        assert stored_line["fund_id"] == preview_line["fund_id"]
+        assert stored_line["fund_name"] == preview_line["fund_name"]
+        assert stored_line["fund_url"] == preview_line["fund_url"]
 
 
 def _create_order(
@@ -665,7 +718,9 @@ def test_created_order_stores_the_preview_split_and_notifies_the_patient_link(
             _request_line(magnesium_id, 2, magnesium_price),
             _request_line(probiotic_id, qty_above_stock, probiotic_price),
         ]
-        assert all(set(line) == {"product_id", "qty", "unit_price_cents", "dosing"} for line in lines)
+        assert all(
+            set(line) == {"product_id", "qty", "unit_price_cents", "dosing"} for line in lines
+        )
         preview_body = {"lines": lines}
         assert set(preview_body) == {"lines"}
         create_body = {"patient_id": jane_id, "lines": lines}

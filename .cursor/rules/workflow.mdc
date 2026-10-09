@@ -30,3 +30,7 @@ Never claim a task is done, commit, or move to the next task without both.
 - Never change `docs/prd.md` or `docs/architecture.md` without my approval.
 - Don't build features or abstractions that aren't in the current task.
 - If something is ambiguous, ask me rather than guessing.
+
+## Version control belongs to the human (applies to every agent and subagent)
+
+Never run `git checkout`, `git switch`, `git branch`, `git commit`, `git push`, `git reset`, `git stash`, `git merge`, or `git rebase`, and never create branches or pull requests, including for docs or diagram updates. Read-only git (`git status`, `git diff`, `git log`) is fine. Leave all changes uncommitted on the current branch and report them; the human reviews and commits.

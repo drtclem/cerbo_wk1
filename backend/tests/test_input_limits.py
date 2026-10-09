@@ -28,9 +28,12 @@ _AUDIT_KEYS = {
     "cogs_total_cents",
     "fee_bps",
     "platform_fee_cents",
+    "donation_bps",
+    "donation_cents",
     "provider_payout_cents",
     "ledger",
     "recomputed_fee_matches",
+    "donation_matches_rate",
     "split_adds_up",
     "ledger_matches_split",
 }
