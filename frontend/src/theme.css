@@ -135,8 +135,8 @@ img {
 
 .app-brand {
   display: flex;
-  flex-direction: column;
-  gap: 0;
+  align-items: center;
+  gap: var(--space-2);
   line-height: 1.15;
   text-decoration: none;
   color: var(--ink);
@@ -940,4 +940,35 @@ label.check-label {
   .receipt {
     padding: var(--space-4);
   }
+}
+
+/* App mark: original two-tone capsule (not Cerbo's logo). */
+.app-brand__text {
+  display: flex;
+  flex-direction: column;
+}
+
+.brand-mark {
+  flex: none;
+  display: block;
+}
+
+.brand-mark__fill {
+  fill: var(--blue);
+}
+
+.brand-mark__outline {
+  fill: var(--blue-tint);
+  stroke: var(--blue);
+}
+
+.login-screen .brand-mark {
+  margin-bottom: var(--space-3);
+}
+
+.app-footer {
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  text-align: center;
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
 }

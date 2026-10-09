@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router";
 
 import { ApiError, apiGet } from "./api/client.ts";
+import { BrandMark, BrandText, DEMO_DISCLAIMER } from "./components/Brand.tsx";
 import { RoleSwitcher, type User } from "./components/RoleSwitcher.tsx";
 import {
   STORAGE_KEY,
@@ -157,8 +158,8 @@ export default function App() {
       <div className="app-shell">
         <header className="app-topbar">
           <Link to="/" className="app-brand">
-            <span className="app-brand__name">Cerbo</span>
-            <span className="app-brand__product">Supplements</span>
+            <BrandMark />
+            <BrandText />
           </Link>
         </header>
         {error !== null ? (
@@ -168,6 +169,7 @@ export default function App() {
         ) : null}
         <main className="app-main">
           <div className="login-screen">
+            <BrandMark size={40} />
             <h1>Cerbo Supplements</h1>
             <p className="login-screen__note">
               This is a demo. Everything here is made up and resets when you log out.
@@ -177,6 +179,7 @@ export default function App() {
             </button>
           </div>
         </main>
+        <footer className="app-footer">{DEMO_DISCLAIMER}</footer>
       </div>
     );
   }
@@ -187,8 +190,8 @@ export default function App() {
     <div className="app-shell">
       <header className="app-topbar">
         <Link to="/" className="app-brand">
-          <span className="app-brand__name">Cerbo</span>
-          <span className="app-brand__product">Supplements</span>
+          <BrandMark />
+          <BrandText />
         </Link>
         <nav className="app-nav" aria-label="Primary">
           {links.map((item) => (
@@ -273,6 +276,7 @@ export default function App() {
           />
         </Routes>
       </main>
+      <footer className="app-footer">{DEMO_DISCLAIMER}</footer>
     </div>
   );
 }
