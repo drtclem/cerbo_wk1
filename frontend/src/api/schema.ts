@@ -336,6 +336,10 @@ export interface components {
             id: number;
             /** Status */
             status: string;
+            /** Payment Ref */
+            payment_ref: string | null;
+            /** Paid At */
+            paid_at: string | null;
             /** Lines */
             lines: components["schemas"]["AuditLineResponse"][];
             /** Subtotal Cents */
@@ -514,6 +518,8 @@ export interface components {
             line_cogs_cents: number;
             /** Line Margin Cents */
             line_margin_cents: number;
+            /** Stock Available */
+            stock_available: number;
         };
         /** PreviewRequest */
         PreviewRequest: {

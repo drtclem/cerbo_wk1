@@ -49,6 +49,8 @@ _DASHBOARD_KEYS = {
 _AUDIT_KEYS = {
     "id",
     "status",
+    "payment_ref",
+    "paid_at",
     "lines",
     "subtotal_cents",
     "cogs_total_cents",

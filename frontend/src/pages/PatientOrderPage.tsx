@@ -162,6 +162,17 @@ function PatientOrderPage({
         <span>Total</span>
         <Money cents={order.subtotal_cents} />
       </p>
+      {order.status === "paid" ? (
+        <>
+          {order.paid_at !== null ? (
+            <p className="muted">Paid {orderDateLabel(order.paid_at)}</p>
+          ) : null}
+          {order.payment_ref !== null ? (
+            <p className="muted">Payment reference {order.payment_ref}</p>
+          ) : null}
+          <p className="muted">{"What happens next: Cerbo ships your order. You don’t need to do anything else."}</p>
+        </>
+      ) : null}
       {canPay ? (
         <>
           <label>

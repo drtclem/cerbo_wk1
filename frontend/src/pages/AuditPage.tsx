@@ -12,12 +12,40 @@ import { LEDGER_MATCHES_LABEL, SPLIT_ADDS_UP_LABEL, feeMatchesLabel } from "../l
 type Audit = components["schemas"]["AuditResponse"];
 type LedgerEntry = components["schemas"]["AuditLedgerResponse"];
 
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
 const LEDGER_LABELS: Record<string, string> = {
   patient_payment: "Patient payment",
   cerbo_cogs: "Cerbo COGS",
   cerbo_fee: "Cerbo fee",
   provider_payable: "Provider payable",
 };
+
+function paidDateLabel(paidAt: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(paidAt);
+  if (match === null) {
+    return paidAt;
+  }
+  const month = MONTHS[Number(match[2]) - 1];
+  const day = Number(match[3]);
+  if (month === undefined || !Number.isInteger(day) || day < 1 || day > 31) {
+    return paidAt;
+  }
+  return `${month} ${day}`;
+}
 
 const LEDGER_RANK: Record<string, number> = {
   cerbo_cogs: 0,
@@ -93,6 +121,12 @@ function AuditPage({ userId }: { userId: number }) {
         <StatusPill status={audit.status} />
       </header>
       <p className="muted">Order {audit.id}</p>
+      {audit.paid_at !== null ? (
+        <p className="muted">Paid {paidDateLabel(audit.paid_at)}</p>
+      ) : null}
+      {audit.payment_ref !== null ? (
+        <p className="muted">Payment reference {audit.payment_ref}</p>
+      ) : null}
 
       <section className="section">
         <h2>Lines</h2>

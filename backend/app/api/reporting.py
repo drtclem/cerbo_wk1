@@ -76,6 +76,8 @@ class AuditLedgerResponse(BaseModel):
 class AuditResponse(BaseModel):
     id: int
     status: str
+    payment_ref: str | None
+    paid_at: str | None
     lines: list[AuditLineResponse]
     subtotal_cents: int
     cogs_total_cents: int
@@ -154,6 +156,8 @@ def _audit(view: OrderAudit) -> AuditResponse:
     return AuditResponse(
         id=view.id,
         status=view.status,
+        payment_ref=view.payment_ref,
+        paid_at=view.paid_at,
         lines=[_audit_line(line) for line in view.lines],
         subtotal_cents=view.subtotal_cents,
         cogs_total_cents=view.cogs_total_cents,

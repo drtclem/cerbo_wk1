@@ -62,5 +62,3 @@ def create_serve_app(
 
     return application
 
-
-app = create_serve_app()

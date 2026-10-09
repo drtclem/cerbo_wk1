@@ -72,6 +72,8 @@ class AuditLedgerEntry:
 class OrderAudit:
     id: int
     status: str
+    payment_ref: str | None
+    paid_at: str | None
     lines: tuple[AuditLine, ...]
     subtotal_cents: int
     cogs_total_cents: int
@@ -117,6 +119,8 @@ def order_audit(session: Session, order: Order) -> OrderAudit:
     return OrderAudit(
         id=order.id,
         status=order.status,
+        payment_ref=order.payment_ref,
+        paid_at=order.paid_at,
         lines=tuple(_audit_line(line) for line in lines),
         subtotal_cents=order.subtotal_cents,
         cogs_total_cents=order.cogs_total_cents,

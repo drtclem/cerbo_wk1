@@ -57,6 +57,8 @@ _PENDING_KEYS = {"id", "created_at", "patient_id", "patient_name"}
 _AUDIT_KEYS = {
     "id",
     "status",
+    "payment_ref",
+    "paid_at",
     "lines",
     "subtotal_cents",
     "cogs_total_cents",
@@ -292,6 +294,7 @@ def _orders(application: FastAPI) -> list[dict[str, object]]:
                     "created_at": order.created_at,
                     "paid_at": order.paid_at,
                     "cancelled_at": order.cancelled_at,
+                    "payment_ref": order.payment_ref,
                     "lines": lines,
                 }
             )
@@ -738,6 +741,8 @@ def _assert_audit(
     order_id = _require_int(stored["id"])
     assert _require_int(body["id"]) == order_id
     assert body["status"] == stored["status"]
+    assert body["payment_ref"] == stored["payment_ref"]
+    assert body["paid_at"] == stored["paid_at"]
     for field in _SPLIT_FIELDS:
         assert _require_int(body[field]) == _require_int(stored[field])
     subtotal_cents = _require_int(stored["subtotal_cents"])

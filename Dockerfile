@@ -21,4 +21,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV DEMO_MODE=true
 EXPOSE 8080
 
-CMD ["sh", "-c", "uvicorn app.serve:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["sh", "-c", "uvicorn --factory app.serve:create_serve_app --host 0.0.0.0 --port ${PORT:-8080}"]

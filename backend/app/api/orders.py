@@ -1,11 +1,11 @@
+from collections.abc import Sequence
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.domain.money import OrderSplit
 from app.models import Order, User
 from app.seams.auth import APIError, require_order_access, require_role
 from app.seams.fulfillment import Fulfillment
@@ -18,6 +18,7 @@ from app.services.orders import (
     OrderNotFound,
     OrderView,
     PreviewLine,
+    PreviewResult,
     ProductUnavailable,
     cancel_order,
     create_order,
@@ -32,14 +33,17 @@ from app.services.payments import OrderNotPayable, OutOfStock, PaymentDeclined, 
 router = APIRouter()
 
 _UNAVAILABLE = "Product is not available for this provider."
+_DUPLICATE = "Each product may appear on only one line."
+_QTY_MAX = 1_000
+_PRICE_MAX = 1_000_000
 
 
 class PreviewLineRequest(BaseModel):
     model_config = ConfigDict(strict=True)
 
     product_id: int
-    qty: int
-    unit_price_cents: int
+    qty: int = Field(ge=1, le=_QTY_MAX)
+    unit_price_cents: int = Field(le=_PRICE_MAX)
 
 
 class PreviewRequest(BaseModel):
@@ -56,6 +60,7 @@ class PreviewLineResponse(BaseModel):
     line_total_cents: int
     line_cogs_cents: int
     line_margin_cents: int
+    stock_available: int
 
 
 class PreviewResponse(BaseModel):
@@ -67,7 +72,25 @@ class PreviewResponse(BaseModel):
     provider_payout_cents: int
 
 
-def _response(split: OrderSplit) -> PreviewResponse:
+def _preview_lines(lines: Sequence[PreviewLineRequest]) -> list[PreviewLine]:
+    seen: set[int] = set()
+    preview: list[PreviewLine] = []
+    for index, line in enumerate(lines):
+        if line.product_id in seen:
+            raise APIError(422, "DUPLICATE_PRODUCT", _DUPLICATE, index)
+        seen.add(line.product_id)
+        preview.append(
+            PreviewLine(
+                product_id=line.product_id,
+                qty=line.qty,
+                unit_price_cents=line.unit_price_cents,
+            )
+        )
+    return preview
+
+
+def _response(result: PreviewResult) -> PreviewResponse:
+    split = result.split
     return PreviewResponse(
         lines=[
             PreviewLineResponse(
@@ -78,8 +101,9 @@ def _response(split: OrderSplit) -> PreviewResponse:
                 line_total_cents=line.line_total_cents,
                 line_cogs_cents=line.line_cogs_cents,
                 line_margin_cents=line.line_margin_cents,
+                stock_available=stock,
             )
-            for line in split.lines
+            for line, stock in zip(split.lines, result.stock_available, strict=True)
         ],
         subtotal_cents=split.subtotal_cents,
         cogs_total_cents=split.cogs_total_cents,
@@ -96,21 +120,10 @@ def post_order_preview(
     user: Annotated[User, Depends(require_role("provider"))],
 ) -> PreviewResponse:
     try:
-        split = preview_order(
-            session,
-            user.id,
-            [
-                PreviewLine(
-                    product_id=line.product_id,
-                    qty=line.qty,
-                    unit_price_cents=line.unit_price_cents,
-                )
-                for line in body.lines
-            ],
-        )
+        result = preview_order(session, user.id, _preview_lines(body.lines))
     except ProductUnavailable as exc:
         raise APIError(422, "PRODUCT_UNAVAILABLE", _UNAVAILABLE, exc.line_index) from None
-    return _response(split)
+    return _response(result)
 
 
 class CreateOrderRequest(BaseModel):
@@ -168,17 +181,6 @@ def get_payment_provider(request: Request) -> PaymentProvider:
 def get_fulfillment(request: Request) -> Fulfillment:
     fulfillment: Fulfillment = request.app.state.fulfillment
     return fulfillment
-
-
-def _preview_lines(lines: list[PreviewLineRequest]) -> list[PreviewLine]:
-    return [
-        PreviewLine(
-            product_id=line.product_id,
-            qty=line.qty,
-            unit_price_cents=line.unit_price_cents,
-        )
-        for line in lines
-    ]
 
 
 def _line_response(line: OrderLineView) -> OrderLineResponse:
@@ -304,5 +306,7 @@ def post_pay_order(
     except OutOfStock:
         raise APIError(409, "OUT_OF_STOCK", "Not enough stock.") from None
     except PaymentDeclined:
-        raise APIError(402, "PAYMENT_DECLINED", "Payment was declined.") from None
+        raise APIError(
+            402, "PAYMENT_DECLINED", "Payment was declined. Try a different card."
+        ) from None
     return _order_response(view)

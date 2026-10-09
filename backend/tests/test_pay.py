@@ -120,7 +120,7 @@ _VALIDATION_ERROR = {
 _PAYMENT_DECLINED = {
     "error": {
         "code": "PAYMENT_DECLINED",
-        "message": "Payment was declined.",
+        "message": "Payment was declined. Try a different card.",
         "line_index": None,
     }
 }

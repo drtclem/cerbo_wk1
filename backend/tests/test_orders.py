@@ -41,6 +41,16 @@ _PREVIEW_LINE_FIELDS = (
     "line_total_cents",
     "line_cogs_cents",
     "line_margin_cents",
+    "stock_available",
+)
+_PRICED_LINE_FIELDS = (
+    "product_id",
+    "qty",
+    "unit_price_cents",
+    "unit_cogs_cents",
+    "line_total_cents",
+    "line_cogs_cents",
+    "line_margin_cents",
 )
 _ORDER_KEYS = {
     "id",
@@ -502,7 +512,7 @@ def _assert_pending_order(
     assert len(response_lines) == len(preview_lines)
     for response_line, preview_line in zip(response_lines, preview_lines, strict=True):
         assert set(response_line) == _LINE_KEYS
-        for field in _PREVIEW_LINE_FIELDS:
+        for field in _PRICED_LINE_FIELDS:
             assert _require_int(response_line[field]) == _require_int(preview_line[field])
         product_id = _require_int(response_line["product_id"])
         product_name = response_line["product_name"]

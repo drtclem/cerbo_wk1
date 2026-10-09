@@ -57,7 +57,7 @@ export function ProductsPage({ userId }: { userId: number }) {
                 <th>Stock</th>
                 <th>Enabled</th>
                 <th>Default price</th>
-                <th>You earn per unit</th>
+                <th>You earn per unit at qty 1</th>
                 <th>
                   <span className="visually-hidden">Actions</span>
                 </th>

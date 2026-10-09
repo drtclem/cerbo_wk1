@@ -7,6 +7,7 @@ import { Money } from "../components/Money.tsx";
 import type { User } from "../components/RoleSwitcher.tsx";
 import { SplitBar } from "../components/SplitBar.tsx";
 import { formatCents, parseDollarsToCents } from "../lib/money.ts";
+import { stockOverWarning } from "../lib/stock.ts";
 
 type ProviderProduct = components["schemas"]["ProviderProductResponse"];
 type PreviewResponse = components["schemas"]["PreviewResponse"];
@@ -45,6 +46,10 @@ function stockLabel(stockQty: number): string {
   return stockQty === 0 ? "Out of stock" : `${stockQty} in stock`;
 }
 
+// Mirrors the API's request limits (D14) so the provider sees a specific message.
+const MAX_QTY = 1_000;
+const MAX_PRICE_CENTS = 1_000_000;
+
 function lineError(line: DraftLine): string | null {
   const qty = line.qty.trim();
   if (!QTY_PATTERN.test(qty)) {
@@ -54,10 +59,17 @@ function lineError(line: DraftLine): string | null {
   if (!Number.isSafeInteger(parsedQty)) {
     return "Quantity must be at least 1.";
   }
+  if (parsedQty > MAX_QTY) {
+    return "Quantity can be at most 1,000.";
+  }
+  let priceCents: number;
   try {
-    parseDollarsToCents(line.price);
+    priceCents = parseDollarsToCents(line.price);
   } catch (cause: unknown) {
     return cause instanceof Error ? cause.message : "Invalid dollar amount";
+  }
+  if (priceCents > MAX_PRICE_CENTS) {
+    return "Price can be at most $10,000.00.";
   }
   return null;
 }
@@ -492,6 +504,11 @@ export function NewOrderPage({ userId }: { userId: number }) {
                     previewProblem?.lineIndex === index ? previewProblem.message : null;
                   const message = localError ?? remoteError;
                   const priced = shownPreview?.lines[index];
+                  const ready = readyLines([line]);
+                  const stockWarning =
+                    priced !== undefined && ready !== null
+                      ? stockOverWarning(ready[0].qty, priced.stock_available)
+                      : null;
                   const name = product?.name ?? "Product";
                   return (
                     <DraftRow
@@ -503,6 +520,7 @@ export function NewOrderPage({ userId }: { userId: number }) {
                       price={line.price}
                       lineTotalCents={priced?.line_total_cents}
                       message={message}
+                      stockWarning={stockWarning}
                       onQty={(qty) => {
                         editLines(
                           lines.map((item) => (item.key === line.key ? { ...item, qty } : item)),
@@ -552,6 +570,7 @@ function DraftRow({
   price,
   lineTotalCents,
   message,
+  stockWarning,
   onQty,
   onPrice,
   onRemove,
@@ -563,6 +582,7 @@ function DraftRow({
   price: string;
   lineTotalCents: number | undefined;
   message: string | null;
+  stockWarning: string | null;
   onQty: (qty: string) => void;
   onPrice: (price: string) => void;
   onRemove: () => void;
@@ -613,6 +633,13 @@ function DraftRow({
         <tr>
           <td colSpan={6}>
             <InlineError message={message} />
+          </td>
+        </tr>
+      ) : null}
+      {message === null && stockWarning !== null ? (
+        <tr>
+          <td colSpan={6}>
+            <p className="muted">{stockWarning}</p>
           </td>
         </tr>
       ) : null}

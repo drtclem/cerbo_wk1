@@ -48,6 +48,7 @@ _LINE_FIELDS = (
     "line_total_cents",
     "line_cogs_cents",
     "line_margin_cents",
+    "stock_available",
 )
 _COUNTED_MODELS = (
     ("users", User),
@@ -338,7 +339,15 @@ def test_preview_matches_compute_split_for_a_multi_line_order_and_allows_qty_abo
         )
         assert FEE_BPS_DEFAULT == 75
         expected = asdict(compute_split(priced, FEE_BPS_DEFAULT))
-        expected["lines"] = list(expected["lines"])
+        magnesium_stock = _catalog_int(catalog, "MAG-GLY", "stock_qty")
+        expected["lines"] = [
+            {**line, "stock_available": stock}
+            for line, stock in zip(
+                expected["lines"],
+                (magnesium_stock, probiotic_stock),
+                strict=True,
+            )
+        ]
 
         request_lines = [
             _request_line(magnesium_id, 2, magnesium_price),
@@ -380,10 +389,9 @@ def test_empty_lines_return_empty_order(tmp_path: Path) -> None:
         )
 
 
-def test_zero_quantity_returns_invalid_quantity_for_that_line(tmp_path: Path) -> None:
+def test_zero_quantity_returns_validation_error(tmp_path: Path) -> None:
     with _seeded_provider(tmp_path) as (application, client, provider_id, catalog):
         product_id = _product_id(catalog, "MAG-GLY")
-        cogs = _catalog_int(catalog, "MAG-GLY", "unit_cogs_cents")
         price = _catalog_int(catalog, "MAG-GLY", "suggested_price_cents")
         response = _preview(
             application,
@@ -392,20 +400,7 @@ def test_zero_quantity_returns_invalid_quantity_for_that_line(tmp_path: Path) ->
             body=_order_body([_request_line(product_id, 0, price)]),
         )
         assert response.status_code == 422
-        _assert_pricing_response(
-            response.json(),
-            (
-                LineInput(
-                    product_id=product_id,
-                    qty=0,
-                    unit_price_cents=price,
-                    unit_cogs_cents=cogs,
-                ),
-            ),
-            "INVALID_QUANTITY",
-            "Quantity must be at least 1.",
-            0,
-        )
+        assert response.json() == _VALIDATION_ERROR
 
 
 def test_price_equal_to_cogs_returns_negative_payout(tmp_path: Path) -> None:

@@ -42,6 +42,12 @@ class PreviewLine:
 
 
 @dataclass(frozen=True)
+class PreviewResult:
+    split: OrderSplit
+    stock_available: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class OrderLineView:
     product_id: int
     product_name: str
@@ -76,17 +82,22 @@ def preview_order(
     session: Session,
     provider_id: int,
     lines: Sequence[PreviewLine],
-) -> OrderSplit:
+) -> PreviewResult:
     """Validate and price a provider's lines. Does not write."""
     resolved: list[LineInput] = []
+    stocks: list[int] = []
     for index, line in enumerate(lines):
         priced = _enabled_line(session, provider_id, line)
         if priced is None:
             if resolved:
                 validate_order(resolved, FEE_BPS_DEFAULT)
             raise ProductUnavailable(index)
-        resolved.append(priced)
-    return validate_order(resolved, FEE_BPS_DEFAULT)
+        resolved.append(priced[0])
+        stocks.append(priced[1])
+    return PreviewResult(
+        split=validate_order(resolved, FEE_BPS_DEFAULT),
+        stock_available=tuple(stocks),
+    )
 
 
 def create_order(
@@ -98,7 +109,7 @@ def create_order(
 ) -> OrderView:
     """Snapshot a validated order. Notifies only after the commit succeeds."""
     _require_patient(session, patient_id)
-    split = preview_order(session, provider_id, lines)
+    split = preview_order(session, provider_id, lines).split
     names = _product_names(session, lines)
 
     created_at = _utc_now()
@@ -257,7 +268,7 @@ def _enabled_line(
     session: Session,
     provider_id: int,
     line: PreviewLine,
-) -> LineInput | None:
+) -> tuple[LineInput, int] | None:
     if not 1 <= line.product_id <= _SQLITE_MAX_INT:
         return None
     link = session.get(ProviderProduct, (provider_id, line.product_id))
@@ -266,9 +277,12 @@ def _enabled_line(
     product = session.get(Product, line.product_id)
     if product is None:
         return None
-    return LineInput(
-        product_id=line.product_id,
-        qty=line.qty,
-        unit_price_cents=line.unit_price_cents,
-        unit_cogs_cents=product.unit_cogs_cents,
+    return (
+        LineInput(
+            product_id=line.product_id,
+            qty=line.qty,
+            unit_price_cents=line.unit_price_cents,
+            unit_cogs_cents=product.unit_cogs_cents,
+        ),
+        product.stock_qty,
     )
