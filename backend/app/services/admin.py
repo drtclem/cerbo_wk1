@@ -24,15 +24,18 @@ def update_admin_product(
     *,
     stock_qty: int | None,
     unit_cogs_cents: int | None,
+    default_dosing: str | None,
 ) -> Product:
     """Update only the columns the admin sent. Does not touch orders or prices."""
     if not 1 <= product_id <= _SQLITE_MAX_INT:
         raise UnknownProduct
-    values: dict[str, int] = {}
+    values: dict[str, int | str] = {}
     if stock_qty is not None:
         values["stock_qty"] = stock_qty
     if unit_cogs_cents is not None:
         values["unit_cogs_cents"] = unit_cogs_cents
+    if default_dosing is not None:
+        values["default_dosing"] = default_dosing
     updated = cast(
         CursorResult[Any],
         session.execute(

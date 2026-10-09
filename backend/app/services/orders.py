@@ -42,6 +42,15 @@ class PreviewLine:
 
 
 @dataclass(frozen=True)
+class CreateLine:
+    product_id: int
+    qty: int
+    unit_price_cents: int
+    dosing: str
+    note: str | None
+
+
+@dataclass(frozen=True)
 class PreviewResult:
     split: OrderSplit
     stock_available: tuple[int, ...]
@@ -57,6 +66,8 @@ class OrderLineView:
     line_total_cents: int
     line_cogs_cents: int
     line_margin_cents: int
+    dosing: str
+    note: str | None
 
 
 @dataclass(frozen=True)
@@ -104,13 +115,21 @@ def create_order(
     session: Session,
     provider_id: int,
     patient_id: int,
-    lines: Sequence[PreviewLine],
+    lines: Sequence[CreateLine],
     notifier: Notifier,
 ) -> OrderView:
     """Snapshot a validated order. Notifies only after the commit succeeds."""
     _require_patient(session, patient_id)
-    split = preview_order(session, provider_id, lines).split
-    names = _product_names(session, lines)
+    priced_lines = tuple(
+        PreviewLine(
+            product_id=line.product_id,
+            qty=line.qty,
+            unit_price_cents=line.unit_price_cents,
+        )
+        for line in lines
+    )
+    split = preview_order(session, provider_id, priced_lines).split
+    names = _product_names(session, priced_lines)
 
     created_at = _utc_now()
     order = Order(
@@ -130,7 +149,7 @@ def create_order(
     session.add(order)
     session.flush()
     stored_lines: list[OrderLine] = []
-    for name, priced in zip(names, split.lines, strict=True):
+    for name, priced, source in zip(names, split.lines, lines, strict=True):
         stored = OrderLine(
             order_id=order.id,
             product_id=priced.product_id,
@@ -138,6 +157,8 @@ def create_order(
             qty=priced.qty,
             unit_price_cents=priced.unit_price_cents,
             unit_cogs_cents=priced.unit_cogs_cents,
+            dosing=source.dosing,
+            note=source.note,
         )
         session.add(stored)
         stored_lines.append(stored)
@@ -235,6 +256,8 @@ def _present(order: Order, lines: Sequence[OrderLine]) -> OrderView:
                 line_total_cents=line_total_cents,
                 line_cogs_cents=line_cogs_cents,
                 line_margin_cents=line_margin_cents,
+                dosing=line.dosing,
+                note=line.note,
             )
         )
     return OrderView(

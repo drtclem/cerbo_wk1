@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -12,6 +12,7 @@ from app.seams.fulfillment import Fulfillment
 from app.seams.notifier import Notifier
 from app.seams.payment_provider import PaymentProvider
 from app.services.orders import (
+    CreateLine,
     InvalidPatient,
     OrderLineView,
     OrderNotCancellable,
@@ -36,6 +37,8 @@ _UNAVAILABLE = "Product is not available for this provider."
 _DUPLICATE = "Each product may appear on only one line."
 _QTY_MAX = 1_000
 _PRICE_MAX = 1_000_000
+_DOSING_MAX = 200
+_NOTE_MAX = 500
 
 
 class PreviewLineRequest(BaseModel):
@@ -44,6 +47,31 @@ class PreviewLineRequest(BaseModel):
     product_id: int
     qty: int = Field(ge=1, le=_QTY_MAX)
     unit_price_cents: int = Field(le=_PRICE_MAX)
+
+
+class CreateLineRequest(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    product_id: int
+    qty: int = Field(ge=1, le=_QTY_MAX)
+    unit_price_cents: int = Field(le=_PRICE_MAX)
+    dosing: str
+    note: str | None = None
+
+    @model_validator(mode="after")
+    def _trim_text(self) -> "CreateLineRequest":
+        dosing = self.dosing.strip()
+        if not dosing or len(dosing) > _DOSING_MAX:
+            raise ValueError("dosing")
+        note: str | None
+        if self.note is None:
+            note = None
+        else:
+            trimmed = self.note.strip()
+            note = trimmed if trimmed else None
+            if note is not None and len(note) > _NOTE_MAX:
+                raise ValueError("note")
+        return self.model_copy(update={"dosing": dosing, "note": note})
 
 
 class PreviewRequest(BaseModel):
@@ -72,21 +100,38 @@ class PreviewResponse(BaseModel):
     provider_payout_cents: int
 
 
-def _preview_lines(lines: Sequence[PreviewLineRequest]) -> list[PreviewLine]:
+def _reject_duplicate_products(lines: Sequence[PreviewLineRequest | CreateLineRequest]) -> None:
     seen: set[int] = set()
-    preview: list[PreviewLine] = []
     for index, line in enumerate(lines):
         if line.product_id in seen:
             raise APIError(422, "DUPLICATE_PRODUCT", _DUPLICATE, index)
         seen.add(line.product_id)
-        preview.append(
-            PreviewLine(
-                product_id=line.product_id,
-                qty=line.qty,
-                unit_price_cents=line.unit_price_cents,
-            )
+
+
+def _preview_lines(lines: Sequence[PreviewLineRequest]) -> list[PreviewLine]:
+    _reject_duplicate_products(lines)
+    return [
+        PreviewLine(
+            product_id=line.product_id,
+            qty=line.qty,
+            unit_price_cents=line.unit_price_cents,
         )
-    return preview
+        for line in lines
+    ]
+
+
+def _create_lines(lines: Sequence[CreateLineRequest]) -> list[CreateLine]:
+    _reject_duplicate_products(lines)
+    return [
+        CreateLine(
+            product_id=line.product_id,
+            qty=line.qty,
+            unit_price_cents=line.unit_price_cents,
+            dosing=line.dosing,
+            note=line.note,
+        )
+        for line in lines
+    ]
 
 
 def _response(result: PreviewResult) -> PreviewResponse:
@@ -130,7 +175,7 @@ class CreateOrderRequest(BaseModel):
     model_config = ConfigDict(strict=True)
 
     patient_id: int
-    lines: list[PreviewLineRequest]
+    lines: list[CreateLineRequest]
 
 
 class PayRequest(BaseModel):
@@ -148,6 +193,8 @@ class OrderLineResponse(BaseModel):
     line_total_cents: int
     line_cogs_cents: int
     line_margin_cents: int
+    dosing: str
+    note: str | None
 
 
 class OrderResponse(BaseModel):
@@ -193,6 +240,8 @@ def _line_response(line: OrderLineView) -> OrderLineResponse:
         line_total_cents=line.line_total_cents,
         line_cogs_cents=line.line_cogs_cents,
         line_margin_cents=line.line_margin_cents,
+        dosing=line.dosing,
+        note=line.note,
     )
 
 
@@ -235,7 +284,7 @@ def post_order(
             session,
             user.id,
             body.patient_id,
-            _preview_lines(body.lines),
+            _create_lines(body.lines),
             notifier,
         )
     except InvalidPatient:

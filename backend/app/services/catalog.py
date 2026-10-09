@@ -20,6 +20,7 @@ class ProviderProductView:
     default_price_cents: int
     unit_cogs_cents: int
     stock_qty: int
+    default_dosing: str
 
 
 def list_products(session: Session) -> list[Product]:
@@ -86,4 +87,5 @@ def _view(link: ProviderProduct, product: Product) -> ProviderProductView:
         default_price_cents=link.default_price_cents,
         unit_cogs_cents=product.unit_cogs_cents,
         stock_qty=product.stock_qty,
+        default_dosing=product.default_dosing,
     )

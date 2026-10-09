@@ -12,6 +12,7 @@ from app.services.admin import UnknownProduct, list_admin_products, update_admin
 router = APIRouter()
 
 _SQLITE_MAX_INT = 9_223_372_036_854_775_807
+_DOSING_MAX = 200
 
 
 class AdminProductResponse(BaseModel):
@@ -23,6 +24,7 @@ class AdminProductResponse(BaseModel):
     unit_cogs_cents: int
     suggested_price_cents: int
     stock_qty: int
+    default_dosing: str
 
 
 class AdminProductUpdate(BaseModel):
@@ -30,15 +32,25 @@ class AdminProductUpdate(BaseModel):
 
     stock_qty: int | None = None
     unit_cogs_cents: int | None = None
+    default_dosing: str | None = None
 
     @model_validator(mode="after")
     def _bounds(self) -> "AdminProductUpdate":
-        if self.stock_qty is None and self.unit_cogs_cents is None:
+        if (
+            self.stock_qty is None
+            and self.unit_cogs_cents is None
+            and self.default_dosing is None
+        ):
             raise ValueError("empty")
         if self.stock_qty is not None and not 0 <= self.stock_qty <= _SQLITE_MAX_INT:
             raise ValueError("stock")
         if self.unit_cogs_cents is not None and not 1 <= self.unit_cogs_cents <= _SQLITE_MAX_INT:
             raise ValueError("cogs")
+        if self.default_dosing is not None:
+            dosing = self.default_dosing.strip()
+            if not dosing or len(dosing) > _DOSING_MAX:
+                raise ValueError("dosing")
+            return self.model_copy(update={"default_dosing": dosing})
         return self
 
 
@@ -63,6 +75,7 @@ def put_admin_product(
             product_id,
             stock_qty=body.stock_qty,
             unit_cogs_cents=body.unit_cogs_cents,
+            default_dosing=body.default_dosing,
         )
     except UnknownProduct:
         raise APIError(404, "NOT_FOUND", "Not found") from None

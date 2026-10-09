@@ -12,11 +12,11 @@ from sqlalchemy.orm import Session
 from app.main import create_app
 from app.models import LedgerEntry, Order, OrderLine, Product, ProviderProduct, User
 
-_PRODUCTS: tuple[tuple[str, str, int, int, int], ...] = (
-    ("MAG-GLY", "Magnesium Glycinate", 1_200, 2_400, 50),
-    ("D3-K2", "Vitamin D3 + K2", 900, 1_800, 40),
-    ("OMEGA3", "Omega-3 Fish Oil", 1_850, 3_600, 25),
-    ("PROBIO50", "Probiotic 50B", 2_100, 4_200, 1),
+_PRODUCTS: tuple[tuple[str, str, int, int, int, str], ...] = (
+    ("MAG-GLY", "Magnesium Glycinate", 1_200, 2_400, 50, "Example: 1 capsule daily with a meal"),
+    ("D3-K2", "Vitamin D3 + K2", 900, 1_800, 40, "Example: 1 capsule daily with a meal"),
+    ("OMEGA3", "Omega-3 Fish Oil", 1_850, 3_600, 25, "Example: 1 capsule daily with a meal"),
+    ("PROBIO50", "Probiotic 50B", 2_100, 4_200, 1, "Example: 1 capsule daily with a meal"),
 )
 _PRODUCT_KEYS = {
     "id",
@@ -25,6 +25,7 @@ _PRODUCT_KEYS = {
     "unit_cogs_cents",
     "suggested_price_cents",
     "stock_qty",
+    "default_dosing",
 }
 _PROVIDER_PRODUCT_KEYS = {
     "product_id",
@@ -34,6 +35,7 @@ _PROVIDER_PRODUCT_KEYS = {
     "default_price_cents",
     "unit_cogs_cents",
     "stock_qty",
+    "default_dosing",
 }
 _MUTABLE_FIELDS = {"stock_qty", "unit_cogs_cents"}
 _ORDER_MONEY = (
@@ -199,6 +201,8 @@ def _product_rows(application: FastAPI) -> list[dict[str, object]]:
             name = product.name
             assert isinstance(sku, str)
             assert isinstance(name, str)
+            dosing = product.default_dosing
+            assert isinstance(dosing, str)
             rows.append(
                 {
                     "id": _require_int(product.id),
@@ -207,6 +211,7 @@ def _product_rows(application: FastAPI) -> list[dict[str, object]]:
                     "unit_cogs_cents": _require_int(product.unit_cogs_cents),
                     "suggested_price_cents": _require_int(product.suggested_price_cents),
                     "stock_qty": _require_int(product.stock_qty),
+                    "default_dosing": dosing,
                 }
             )
         ids = [_require_int(row["id"]) for row in rows]
@@ -269,6 +274,8 @@ def _parse_product(value: object) -> dict[str, object]:
     name = row["name"]
     assert isinstance(sku, str)
     assert isinstance(name, str)
+    dosing = row["default_dosing"]
+    assert isinstance(dosing, str)
     return {
         "id": _require_int(row["id"]),
         "sku": sku,
@@ -276,6 +283,7 @@ def _parse_product(value: object) -> dict[str, object]:
         "unit_cogs_cents": _require_int(row["unit_cogs_cents"]),
         "suggested_price_cents": _require_int(row["suggested_price_cents"]),
         "stock_qty": _require_int(row["stock_qty"]),
+        "default_dosing": dosing,
     }
 
 
@@ -289,12 +297,13 @@ def _parse_products(payload: object) -> list[dict[str, object]]:
 def _assert_seed_products(rows: list[dict[str, object]]) -> None:
     assert len(rows) == len(_PRODUCTS)
     for row, expected in zip(rows, _PRODUCTS, strict=True):
-        sku, name, cogs_cents, suggested_cents, stock_qty = expected
+        sku, name, cogs_cents, suggested_cents, stock_qty, dosing = expected
         assert row["sku"] == sku
         assert row["name"] == name
         assert _require_int(row["unit_cogs_cents"]) == cogs_cents
         assert _require_int(row["suggested_price_cents"]) == suggested_cents
         assert _require_int(row["stock_qty"]) == stock_qty
+        assert row["default_dosing"] == dosing
 
 
 def _assert_provider_api(
@@ -318,6 +327,7 @@ def _assert_provider_api(
         )
         assert _require_int(row["unit_cogs_cents"]) == _require_int(product["unit_cogs_cents"])
         assert _require_int(row["stock_qty"]) == _require_int(product["stock_qty"])
+        assert row["default_dosing"] == product["default_dosing"]
 
 
 def _assert_seed_state(application: FastAPI, client: TestClient) -> None:
@@ -746,8 +756,13 @@ def test_raising_catalog_cogs_leaves_the_existing_order_unchanged(tmp_path: Path
         assert _require_int(original["suggested_price_cents"]) == 2_400
         assert _require_int(original["stock_qty"]) == 50
         assert _default_price(application, provider_id, product_id) == 2_400
-        line = {"product_id": product_id, "qty": 1, "unit_price_cents": 2_400}
-        assert set(line) == {"product_id", "qty", "unit_price_cents"}
+        line = {
+            "product_id": product_id,
+            "qty": 1,
+            "unit_price_cents": 2_400,
+            "dosing": "Example: 1 capsule daily with a meal",
+        }
+        assert set(line) == {"product_id", "qty", "unit_price_cents", "dosing"}
 
         created_response = client.post(
             "/orders",

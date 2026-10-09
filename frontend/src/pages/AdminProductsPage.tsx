@@ -71,6 +71,7 @@ export function AdminProductsPage({ userId }: { userId: number }) {
                 <th className="num">Suggested price</th>
                 <th>Stock</th>
                 <th>COGS</th>
+                <th>Default dosing</th>
                 <th>
                   <span className="visually-hidden">Actions</span>
                 </th>
@@ -104,6 +105,7 @@ function AdminProductRow({
 }) {
   const [stock, setStock] = useState(String(product.stock_qty));
   const [cogs, setCogs] = useState(formatCents(product.unit_cogs_cents));
+  const [dosing, setDosing] = useState(product.default_dosing);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
@@ -128,6 +130,11 @@ function AdminProductRow({
       setError("COGS must be greater than zero.");
       return;
     }
+    const trimmedDosing = dosing.trim();
+    if (trimmedDosing.length === 0 || trimmedDosing.length > 200) {
+      setError("Default dosing is required (at most 200 characters).");
+      return;
+    }
     saving.current = true;
     setBusy(true);
     setError(null);
@@ -135,9 +142,11 @@ function AdminProductRow({
       const updated = await apiSend<AdminProduct>(`/admin/products/${product.id}`, userId, "PUT", {
         stock_qty: stockQty,
         unit_cogs_cents: cogsCents,
+        default_dosing: trimmedDosing,
       });
       setStock(String(updated.stock_qty));
       setCogs(formatCents(updated.unit_cogs_cents));
+      setDosing(updated.default_dosing);
       onUpdated(updated);
     } catch (cause: unknown) {
       setError(errorText(cause));
@@ -147,7 +156,10 @@ function AdminProductRow({
     }
   }
 
-  const unsaved = stock !== String(product.stock_qty) || cogs !== formatCents(product.unit_cogs_cents);
+  const unsaved =
+    stock !== String(product.stock_qty) ||
+    cogs !== formatCents(product.unit_cogs_cents) ||
+    dosing !== product.default_dosing;
 
   return (
     <>
@@ -184,6 +196,17 @@ function AdminProductRow({
           />
         </td>
         <td>
+          <input
+            aria-label={`Default dosing for ${product.name}`}
+            value={dosing}
+            maxLength={200}
+            onChange={(event) => {
+              setDosing(event.target.value);
+              setError(null);
+            }}
+          />
+        </td>
+        <td>
           <div className="btn-row">
             <button
               type="button"
@@ -199,7 +222,7 @@ function AdminProductRow({
       </tr>
       {error !== null ? (
         <tr>
-          <td colSpan={5}>
+          <td colSpan={6}>
             <InlineError message={error} />
           </td>
         </tr>

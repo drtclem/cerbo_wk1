@@ -8,10 +8,10 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 _PRODUCTS = (
-    ("MAG-GLY", "Magnesium Glycinate", 1_200, 2_400, 50),
-    ("D3-K2", "Vitamin D3 + K2", 900, 1_800, 40),
-    ("OMEGA3", "Omega-3 Fish Oil", 1_850, 3_600, 25),
-    ("PROBIO50", "Probiotic 50B", 2_100, 4_200, 1),
+    ("MAG-GLY", "Magnesium Glycinate", 1_200, 2_400, 50, "Example: 1 capsule daily with a meal"),
+    ("D3-K2", "Vitamin D3 + K2", 900, 1_800, 40, "Example: 1 capsule daily with a meal"),
+    ("OMEGA3", "Omega-3 Fish Oil", 1_850, 3_600, 25, "Example: 1 capsule daily with a meal"),
+    ("PROBIO50", "Probiotic 50B", 2_100, 4_200, 1, "Example: 1 capsule daily with a meal"),
 )
 
 
@@ -71,6 +71,7 @@ def test_demo_reset_clears_orders_and_restores_seed_stock_and_cogs(tmp_path: Pat
                         "product_id": mag_id,
                         "qty": 2,
                         "unit_price_cents": 2_400,
+                        "dosing": "Example: 1 capsule daily with a meal",
                     }
                 ],
             },
@@ -116,7 +117,7 @@ def test_demo_reset_clears_orders_and_restores_seed_stock_and_cogs(tmp_path: Pat
         ]
         assert len(restored) == len(_PRODUCTS)
         for row, expected in zip(restored, _PRODUCTS, strict=True):
-            sku, _name, cogs_cents, _suggested, stock_qty = expected
+            sku, _name, cogs_cents, _suggested, stock_qty, _dosing = expected
             assert row["sku"] == sku
             assert _require_int(row["unit_cogs_cents"]) == cogs_cents
             assert _require_int(row["stock_qty"]) == stock_qty

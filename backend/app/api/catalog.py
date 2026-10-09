@@ -27,6 +27,7 @@ class CatalogProductResponse(BaseModel):
     unit_cogs_cents: int
     suggested_price_cents: int
     stock_qty: int
+    default_dosing: str
 
 
 class ProviderProductResponse(BaseModel):
@@ -37,6 +38,7 @@ class ProviderProductResponse(BaseModel):
     default_price_cents: int
     unit_cogs_cents: int
     stock_qty: int
+    default_dosing: str
 
 
 class ProviderProductUpdate(BaseModel):

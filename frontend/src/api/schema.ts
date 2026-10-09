@@ -294,6 +294,8 @@ export interface components {
             suggested_price_cents: number;
             /** Stock Qty */
             stock_qty: number;
+            /** Default Dosing */
+            default_dosing: string;
         };
         /** AdminProductUpdate */
         AdminProductUpdate: {
@@ -301,6 +303,8 @@ export interface components {
             stock_qty?: number | null;
             /** Unit Cogs Cents */
             unit_cogs_cents?: number | null;
+            /** Default Dosing */
+            default_dosing?: string | null;
         };
         /** AuditLedgerResponse */
         AuditLedgerResponse: {
@@ -375,13 +379,28 @@ export interface components {
             suggested_price_cents: number;
             /** Stock Qty */
             stock_qty: number;
+            /** Default Dosing */
+            default_dosing: string;
+        };
+        /** CreateLineRequest */
+        CreateLineRequest: {
+            /** Product Id */
+            product_id: number;
+            /** Qty */
+            qty: number;
+            /** Unit Price Cents */
+            unit_price_cents: number;
+            /** Dosing */
+            dosing: string;
+            /** Note */
+            note?: string | null;
         };
         /** CreateOrderRequest */
         CreateOrderRequest: {
             /** Patient Id */
             patient_id: number;
             /** Lines */
-            lines: components["schemas"]["PreviewLineRequest"][];
+            lines: components["schemas"]["CreateLineRequest"][];
         };
         /** DashboardResponse */
         DashboardResponse: {
@@ -421,6 +440,10 @@ export interface components {
             line_cogs_cents: number;
             /** Line Margin Cents */
             line_margin_cents: number;
+            /** Dosing */
+            dosing: string;
+            /** Note */
+            note: string | null;
         };
         /** OrderResponse */
         OrderResponse: {
@@ -557,6 +580,8 @@ export interface components {
             unit_cogs_cents: number;
             /** Stock Qty */
             stock_qty: number;
+            /** Default Dosing */
+            default_dosing: string;
         };
         /** ProviderProductUpdate */
         ProviderProductUpdate: {

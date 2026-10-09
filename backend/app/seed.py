@@ -10,11 +10,13 @@ _USERS = (
     ("Cerbo Admin", "admin"),
 )
 
+_DEFAULT_DOSING = "Example: 1 capsule daily with a meal"
+
 _PRODUCTS = (
-    ("MAG-GLY", "Magnesium Glycinate", 1200, 2400, 50),
-    ("D3-K2", "Vitamin D3 + K2", 900, 1800, 40),
-    ("OMEGA3", "Omega-3 Fish Oil", 1850, 3600, 25),
-    ("PROBIO50", "Probiotic 50B", 2100, 4200, 1),
+    ("MAG-GLY", "Magnesium Glycinate", 1200, 2400, 50, _DEFAULT_DOSING),
+    ("D3-K2", "Vitamin D3 + K2", 900, 1800, 40, _DEFAULT_DOSING),
+    ("OMEGA3", "Omega-3 Fish Oil", 1850, 3600, 25, _DEFAULT_DOSING),
+    ("PROBIO50", "Probiotic 50B", 2100, 4200, 1, _DEFAULT_DOSING),
 )
 
 _PROVIDER_NAME = "Dr. Maya Patel"
@@ -30,7 +32,7 @@ def seed(session: Session) -> None:
     if provider is None:
         return
 
-    for sku, name, cogs_cents, suggested_cents, stock_qty in _PRODUCTS:
+    for sku, name, cogs_cents, suggested_cents, stock_qty, default_dosing in _PRODUCTS:
         product = session.scalar(select(Product).where(Product.sku == sku))
         if product is None:
             product = Product(
@@ -39,6 +41,7 @@ def seed(session: Session) -> None:
                 unit_cogs_cents=cogs_cents,
                 suggested_price_cents=suggested_cents,
                 stock_qty=stock_qty,
+                default_dosing=default_dosing,
             )
             session.add(product)
             session.flush()

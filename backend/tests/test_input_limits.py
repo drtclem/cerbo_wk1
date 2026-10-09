@@ -75,11 +75,23 @@ def _product_id(client: TestClient, provider_id: int, sku: str) -> int:
     return _require_int(matches[0]["id"])
 
 
-def _line(product_id: int, qty: int, unit_price_cents: int) -> dict[str, int]:
+_DEFAULT_DOSING = "Example: 1 capsule daily with a meal"
+
+
+def _line(product_id: int, qty: int, unit_price_cents: int) -> dict[str, object]:
     return {
         "product_id": product_id,
         "qty": qty,
         "unit_price_cents": unit_price_cents,
+    }
+
+
+def _create_line(product_id: int, qty: int, unit_price_cents: int) -> dict[str, object]:
+    return {
+        "product_id": product_id,
+        "qty": qty,
+        "unit_price_cents": unit_price_cents,
+        "dosing": _DEFAULT_DOSING,
     }
 
 
@@ -124,7 +136,7 @@ def test_create_rejects_qty_and_price_caps(tmp_path: Path) -> None:
                 headers=_headers(provider_id),
                 json={
                     "patient_id": patient_id,
-                    "lines": [_line(product_id, qty, price)],
+                    "lines": [_create_line(product_id, qty, price)],
                 },
             )
             assert response.status_code == 422, (qty, price)
@@ -134,7 +146,7 @@ def test_create_rejects_qty_and_price_caps(tmp_path: Path) -> None:
 def test_preview_and_create_reject_duplicate_product(tmp_path: Path) -> None:
     with _seeded(tmp_path) as (_app, client, provider_id, patient_id, product_id):
         other_id = _product_id(client, provider_id, "D3-K2")
-        lines = [
+        preview_lines = [
             _line(product_id, 1, 2_400),
             _line(other_id, 1, 1_800),
             _line(product_id, 2, 2_400),
@@ -142,17 +154,22 @@ def test_preview_and_create_reject_duplicate_product(tmp_path: Path) -> None:
         preview = client.post(
             "/orders/preview",
             headers=_headers(provider_id),
-            json={"lines": lines},
+            json={"lines": preview_lines},
         )
         assert preview.status_code == 422
         error = _require_dict(_require_dict(preview.json())["error"])
         assert error["code"] == "DUPLICATE_PRODUCT"
         assert _require_int(error["line_index"]) == 2
 
+        create_lines = [
+            _create_line(product_id, 1, 2_400),
+            _create_line(other_id, 1, 1_800),
+            _create_line(product_id, 2, 2_400),
+        ]
         created = client.post(
             "/orders",
             headers=_headers(provider_id),
-            json={"patient_id": patient_id, "lines": lines},
+            json={"patient_id": patient_id, "lines": create_lines},
         )
         assert created.status_code == 422
         create_error = _require_dict(_require_dict(created.json())["error"])
@@ -192,7 +209,7 @@ def test_preview_includes_stock_available_and_allows_qty_above_stock(
             headers=_headers(provider_id),
             json={
                 "patient_id": patient_id,
-                "lines": [_line(product_id, qty, 2_400)],
+                "lines": [_create_line(product_id, qty, 2_400)],
             },
         )
         assert created.status_code == 200
@@ -215,7 +232,7 @@ def test_audit_includes_payment_ref_and_paid_at_for_paid_order(tmp_path: Path) -
             headers=_headers(provider_id),
             json={
                 "patient_id": patient_id,
-                "lines": [_line(product_id, 1, 2_400)],
+                "lines": [_create_line(product_id, 1, 2_400)],
             },
         )
         assert created.status_code == 200
@@ -249,7 +266,7 @@ def test_decline_message_mentions_try_a_different_card(tmp_path: Path) -> None:
             headers=_headers(provider_id),
             json={
                 "patient_id": patient_id,
-                "lines": [_line(product_id, 1, 2_400)],
+                "lines": [_create_line(product_id, 1, 2_400)],
             },
         )
         assert created.status_code == 200

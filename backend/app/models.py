@@ -24,6 +24,7 @@ class Product(Base):
         CheckConstraint("unit_cogs_cents > 0"),
         CheckConstraint("suggested_price_cents > 0"),
         CheckConstraint("stock_qty >= 0"),
+        CheckConstraint("length(default_dosing) >= 1 AND length(default_dosing) <= 200"),
         {"sqlite_strict": True},
     )
 
@@ -33,6 +34,7 @@ class Product(Base):
     unit_cogs_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     suggested_price_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     stock_qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    default_dosing: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class ProviderProduct(Base):
@@ -86,6 +88,8 @@ class OrderLine(Base):
         CheckConstraint("unit_price_cents > 0"),
         CheckConstraint("unit_cogs_cents > 0"),
         CheckConstraint("unit_price_cents >= unit_cogs_cents"),
+        CheckConstraint("length(dosing) >= 1 AND length(dosing) <= 200"),
+        CheckConstraint("note IS NULL OR length(note) <= 500"),
         {"sqlite_strict": True},
     )
 
@@ -96,6 +100,8 @@ class OrderLine(Base):
     qty: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_price_cents: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_cogs_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    dosing: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class LedgerEntry(Base):

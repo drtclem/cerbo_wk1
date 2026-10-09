@@ -16,10 +16,10 @@ _EXPECTED_USERS = {
     ("Cerbo Admin", "admin"),
 }
 _EXPECTED_PRODUCTS = {
-    ("MAG-GLY", "Magnesium Glycinate", 1200, 2400, 50),
-    ("D3-K2", "Vitamin D3 + K2", 900, 1800, 40),
-    ("OMEGA3", "Omega-3 Fish Oil", 1850, 3600, 25),
-    ("PROBIO50", "Probiotic 50B", 2100, 4200, 1),
+    ("MAG-GLY", "Magnesium Glycinate", 1200, 2400, 50, "Example: 1 capsule daily with a meal"),
+    ("D3-K2", "Vitamin D3 + K2", 900, 1800, 40, "Example: 1 capsule daily with a meal"),
+    ("OMEGA3", "Omega-3 Fish Oil", 1850, 3600, 25, "Example: 1 capsule daily with a meal"),
+    ("PROBIO50", "Probiotic 50B", 2100, 4200, 1, "Example: 1 capsule daily with a meal"),
 }
 
 
@@ -43,6 +43,7 @@ def _commit_provider_patient_product(session: Session) -> tuple[int, int, int]:
         unit_cogs_cents=1200,
         suggested_price_cents=2400,
         stock_qty=50,
+        default_dosing="Example: 1 capsule daily with a meal",
     )
     session.add_all([provider, patient, product])
     session.commit()
@@ -86,6 +87,7 @@ def test_seed_creates_architecture_section_5_data_and_a_second_seed_does_not_dup
             product.unit_cogs_cents,
             product.suggested_price_cents,
             product.stock_qty,
+            product.default_dosing,
         )
         for product in products
     } == _EXPECTED_PRODUCTS
@@ -93,6 +95,7 @@ def test_seed_creates_architecture_section_5_data_and_a_second_seed_does_not_dup
         _assert_int(product.unit_cogs_cents)
         _assert_int(product.suggested_price_cents)
         _assert_int(product.stock_qty)
+        assert product.default_dosing == "Example: 1 capsule daily with a meal"
 
     provider = db_session.scalars(select(User).where(User.name == "Dr. Maya Patel")).one()
     links = db_session.scalars(
@@ -130,6 +133,7 @@ def test_db_rejects_stock_qty_of_negative_one(db_session: Session) -> None:
             unit_cogs_cents=100,
             suggested_price_cents=200,
             stock_qty=-1,
+            default_dosing="Example: 1 capsule daily with a meal",
         )
     )
     with pytest.raises(IntegrityError):
@@ -148,6 +152,8 @@ def test_db_rejects_order_line_qty_zero(db_session: Session) -> None:
             qty=0,
             unit_price_cents=200,
             unit_cogs_cents=100,
+        dosing="Example: 1 capsule daily with a meal",
+        note=None,
         )
     )
     with pytest.raises(IntegrityError):
@@ -166,6 +172,8 @@ def test_db_rejects_order_line_unit_price_below_unit_cogs(db_session: Session) -
             qty=1,
             unit_price_cents=100,
             unit_cogs_cents=200,
+        dosing="Example: 1 capsule daily with a meal",
+        note=None,
         )
     )
     with pytest.raises(IntegrityError):
@@ -305,6 +313,8 @@ def test_foreign_keys_reject_order_line_whose_order_does_not_exist(
             qty=1,
             unit_price_cents=2400,
             unit_cogs_cents=1200,
+        dosing="Example: 1 capsule daily with a meal",
+        note=None,
         )
     )
     with pytest.raises(IntegrityError):

@@ -13,11 +13,11 @@ from app.domain.money import LineInput, compute_fee, compute_split
 from app.main import create_app
 from app.models import LedgerEntry, Order, OrderLine, Product, ProviderProduct, User
 
-_PRODUCTS: tuple[tuple[str, str, int, int, int], ...] = (
-    ("MAG-GLY", "Magnesium Glycinate", 1_200, 2_400, 50),
-    ("D3-K2", "Vitamin D3 + K2", 900, 1_800, 40),
-    ("OMEGA3", "Omega-3 Fish Oil", 1_850, 3_600, 25),
-    ("PROBIO50", "Probiotic 50B", 2_100, 4_200, 1),
+_PRODUCTS: tuple[tuple[str, str, int, int, int, str], ...] = (
+    ("MAG-GLY", "Magnesium Glycinate", 1_200, 2_400, 50, "Example: 1 capsule daily with a meal"),
+    ("D3-K2", "Vitamin D3 + K2", 900, 1_800, 40, "Example: 1 capsule daily with a meal"),
+    ("OMEGA3", "Omega-3 Fish Oil", 1_850, 3_600, 25, "Example: 1 capsule daily with a meal"),
+    ("PROBIO50", "Probiotic 50B", 2_100, 4_200, 1, "Example: 1 capsule daily with a meal"),
 )
 _CATALOG_KEYS = {
     "id",
@@ -26,6 +26,7 @@ _CATALOG_KEYS = {
     "unit_cogs_cents",
     "suggested_price_cents",
     "stock_qty",
+    "default_dosing",
 }
 _SPLIT_FIELDS = (
     "subtotal_cents",
@@ -208,7 +209,7 @@ def _load_catalog(client: TestClient, user_id: int) -> list[dict[str, object]]:
     assert len(rows) == len(_PRODUCTS)
     ids: list[int] = []
     for row, expected in zip(rows, _PRODUCTS, strict=True):
-        sku, name, cogs_cents, suggested_cents, stock_qty = expected
+        sku, name, cogs_cents, suggested_cents, stock_qty, _dosing = expected
         assert set(row) == _CATALOG_KEYS
         product_id = _require_int(row["id"])
         assert row["sku"] == sku
@@ -236,11 +237,12 @@ def _catalog_int(catalog: list[dict[str, object]], sku: str, field: str) -> int:
     return _require_int(_catalog_row(catalog, sku)[field])
 
 
-def _request_line(product_id: int, qty: int, unit_price_cents: int) -> dict[str, int]:
+def _request_line(product_id: int, qty: int, unit_price_cents: int) -> dict[str, object]:
     return {
         "product_id": product_id,
         "qty": qty,
         "unit_price_cents": unit_price_cents,
+        "dosing": "Example: 1 capsule daily with a meal",
     }
 
 

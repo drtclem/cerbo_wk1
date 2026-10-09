@@ -149,6 +149,18 @@ function PatientOrderPage({
                 <div className="muted">
                   <Money cents={line.unit_price_cents} /> each
                 </div>
+                <p className="line-instructions">
+                  <span className="line-instructions__label">How to take it:</span>{" "}
+                  {line.dosing}
+                </p>
+                {line.note !== null && line.note.length > 0 ? (
+                  <p className="line-instructions">
+                    <span className="line-instructions__label">
+                      Why {providerName} recommends it:
+                    </span>{" "}
+                    {line.note}
+                  </p>
+                ) : null}
               </td>
               <td className="num">{line.qty}</td>
               <td className="num">

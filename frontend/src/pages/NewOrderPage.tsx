@@ -19,6 +19,8 @@ type DraftLine = {
   productId: number;
   qty: string;
   price: string;
+  dosing: string;
+  note: string;
 };
 
 type ReadyLine = {
@@ -70,6 +72,16 @@ function lineError(line: DraftLine): string | null {
   }
   if (priceCents > MAX_PRICE_CENTS) {
     return "Price can be at most $10,000.00.";
+  }
+  const dosing = line.dosing.trim();
+  if (dosing.length === 0) {
+    return "Dosing is required.";
+  }
+  if (dosing.length > 200) {
+    return "Dosing must be at most 200 characters.";
+  }
+  if (line.note.trim().length > 500) {
+    return "Note must be at most 500 characters.";
   }
   return null;
 }
@@ -307,6 +319,8 @@ export function NewOrderPage({ userId }: { userId: number }) {
         productId: product.product_id,
         qty: "1",
         price: formatCents(product.default_price_cents),
+        dosing: product.default_dosing,
+        note: "",
       },
     ]);
     lineKey.current += 1;
@@ -322,11 +336,17 @@ export function NewOrderPage({ userId }: { userId: number }) {
     try {
       const order = await apiSend<OrderResponse>("/orders", userId, "POST", {
         patient_id: patientId,
-        lines: shownPreview.lines.map((line) => ({
-          product_id: line.product_id,
-          qty: line.qty,
-          unit_price_cents: line.unit_price_cents,
-        })),
+        lines: shownPreview.lines.map((line, index) => {
+          const draft = lines[index];
+          const note = draft?.note.trim() ?? "";
+          return {
+            product_id: line.product_id,
+            qty: line.qty,
+            unit_price_cents: line.unit_price_cents,
+            dosing: draft?.dosing.trim() ?? "",
+            note: note.length === 0 ? null : note,
+          };
+        }),
       });
       setCreated(order);
       setStep("created");
@@ -388,6 +408,8 @@ export function NewOrderPage({ userId }: { userId: number }) {
                       key={`${line.product_id}-${index}`}
                       line={line}
                       productName={productById(products, line.product_id)?.name ?? "Product"}
+                      dosing={lines[index]?.dosing.trim() ?? ""}
+                      note={lines[index]?.note.trim() ?? ""}
                     />
                   ))}
                 </tbody>
@@ -518,6 +540,8 @@ export function NewOrderPage({ userId }: { userId: number }) {
                       outOfStock={product?.stock_qty === 0}
                       qty={line.qty}
                       price={line.price}
+                      dosing={line.dosing}
+                      note={line.note}
                       lineTotalCents={priced?.line_total_cents}
                       message={message}
                       stockWarning={stockWarning}
@@ -529,6 +553,16 @@ export function NewOrderPage({ userId }: { userId: number }) {
                       onPrice={(price) => {
                         editLines(
                           lines.map((item) => (item.key === line.key ? { ...item, price } : item)),
+                        );
+                      }}
+                      onDosing={(dosing) => {
+                        editLines(
+                          lines.map((item) => (item.key === line.key ? { ...item, dosing } : item)),
+                        );
+                      }}
+                      onNote={(note) => {
+                        editLines(
+                          lines.map((item) => (item.key === line.key ? { ...item, note } : item)),
                         );
                       }}
                       onRemove={() => {
@@ -568,11 +602,15 @@ function DraftRow({
   outOfStock,
   qty,
   price,
+  dosing,
+  note,
   lineTotalCents,
   message,
   stockWarning,
   onQty,
   onPrice,
+  onDosing,
+  onNote,
   onRemove,
 }: {
   name: string;
@@ -580,11 +618,15 @@ function DraftRow({
   outOfStock: boolean;
   qty: string;
   price: string;
+  dosing: string;
+  note: string;
   lineTotalCents: number | undefined;
   message: string | null;
   stockWarning: string | null;
   onQty: (qty: string) => void;
   onPrice: (price: string) => void;
+  onDosing: (dosing: string) => void;
+  onNote: (note: string) => void;
   onRemove: () => void;
 }) {
   return (
@@ -629,6 +671,34 @@ function DraftRow({
           </button>
         </td>
       </tr>
+      <tr>
+        <td colSpan={6}>
+          <label>
+            Dosing
+            <input
+              aria-label={`Dosing for ${name}`}
+              value={dosing}
+              maxLength={200}
+              onChange={(event) => {
+                onDosing(event.target.value);
+              }}
+            />
+          </label>
+          <label>
+            Why I recommend this
+            <textarea
+              aria-label={`Note for ${name}`}
+              value={note}
+              maxLength={500}
+              rows={2}
+              placeholder="Optional. Shown to the patient."
+              onChange={(event) => {
+                onNote(event.target.value);
+              }}
+            />
+          </label>
+        </td>
+      </tr>
       {message !== null ? (
         <tr>
           <td colSpan={6}>
@@ -647,10 +717,24 @@ function DraftRow({
   );
 }
 
-function ReviewLine({ line, productName }: { line: PreviewLine; productName: string }) {
+function ReviewLine({
+  line,
+  productName,
+  dosing,
+  note,
+}: {
+  line: PreviewLine;
+  productName: string;
+  dosing: string;
+  note: string;
+}) {
   return (
     <tr>
-      <td className="cell-title">{productName}</td>
+      <td>
+        <div className="cell-title">{productName}</div>
+        {dosing.length > 0 ? <div className="muted">{dosing}</div> : null}
+        {note.length > 0 ? <div className="muted">{note}</div> : null}
+      </td>
       <td className="num">{line.qty}</td>
       <td className="num">
         <Money cents={line.unit_price_cents} />
