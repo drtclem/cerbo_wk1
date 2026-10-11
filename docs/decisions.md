@@ -24,8 +24,12 @@ _Running log of product and architecture decisions. Feeds `prd.md` and `architec
 | 6 | Inventory scope for the dashboard | ✅ Provider product list plus Cerbo-owned stock reduced at payment; input checks |
 | 7 | Stack: language and backend framework | ✅ Python + FastAPI, React frontend, pytest, uv |
 | 8 | Stack: database | ✅ SQLite (Postgres-ready) + SQLAlchemy 2.0, seed script |
-| 9 | Stack: frontend approach | ✅ React + Vite + TS; Pico.css themed with Cerbo brand tokens; cents-only API |
+| 9 | Stack: frontend approach | ✅ React + Vite + TS; Cerbo brand tokens (Pico.css at first, replaced by a hand-written stylesheet in T18); cents-only API |
 | 10 | Stubs and seams (auth, payments, notifications) | ✅ Interface + fake for auth, payments, notifications, fulfillment; real ownership checks |
+| 11 | Clinical notes on order lines | ✅ Dosing and "why I recommend this" written by the provider, never generated |
+| 12 | Research donations | ✅ Optional 5% of provider margin per line, one fund per product, paid from payout |
+| 13 | Patient removes items before paying | ✅ Soft-remove while pending; recompute from stored prices and rates |
+| 14 | Input limits | ✅ qty 1–1,000, price ≤ $10,000, one line per product |
 
 ---
 
@@ -130,6 +134,7 @@ _Running log of product and architecture decisions. Feeds `prd.md` and `architec
 - **Test:** fire two concurrent payment calls at one order and expect exactly one paid order, one set of ledger rows, and one stub charge.
 - Why: Prevents double charges and double ledger writes (G1), each layer is small (G3), and it keeps the payment seam ready for real use (G2).
 - **Refinement (during T7/T8):** using the order ID as the key conflicted with retry-after-decline (AC3.3). The fake replays only the *same attempt* (same key, amount, and payment method); an approval is permanent; a decline followed by a different payment method is a new attempt. Double-pay protection still holds through layers 1 and 2. Production would use a per-attempt key (e.g. `order-12-attempt-2`), since real processors treat a reused key as the same request.
+- **Found while filming (2026-10-09):** the demo reset rebuilt the database but not the fake processor's remembered attempts. Order IDs restart at 1 after a reset, so a new order 1 replayed an old approval and "paid" with the decline card. The demo reset now also clears the fake processor (test in `test_demo.py`). Same root cause as above: the key must be unique forever, which a per-attempt key recorded in the database would guarantee.
 - Known gap, for the writeup: with a real processor, the charge could succeed and then the DB write fail. Production would reconcile using processor webhooks. Out of scope with stubbed payments.
 
 ### D6. Inventory scope
@@ -187,7 +192,7 @@ _Running log of product and architecture decisions. Feeds `prd.md` and `architec
 **9a. React + Vite + TypeScript.** Screens: provider order builder (live preview → confirm), provider dashboard (sales, earnings, product list), patient order review and payment page, admin stock page. TypeScript types for API calls are generated from FastAPI's OpenAPI schema, so the frontend and backend can't silently drift (G2).
 - Rejected: plain JavaScript (no safety net on API shapes), Python-rendered pages + htmx (single language, but less suited to the interactive order builder, and less familiar to AI tools).
 
-**9b. Styling: Pico.css (classless) themed with Cerbo's public brand tokens**, so the slice looks like a natural part of Cerbo's product rather than a generic demo. Source: the CSS variables on cer.bo's marketing site (retrieved Oct 5, 2026).
+**9b. Styling (superseded in T18: Pico was replaced by a small hand-written stylesheet on the same tokens, per `ui-design.md`): Pico.css (classless) themed with Cerbo's public brand tokens**, so the slice looks like a natural part of Cerbo's product rather than a generic demo. Source: the CSS variables on cer.bo's marketing site (retrieved Oct 5, 2026).
 - Primary blue `#1570ef` (hover/darker `#175cd3`, light tint `#eff8ff`); secondary magenta `#D70073`, used sparingly for one accent (e.g. the "you receive" figure); gray scale `#101828` (headings) → `#667085` (body text) → `#eaecf0` (borders).
 - Font: Inter (free, Google Fonts). Corner radius: 8px. Their display serif ("Doyle") is a licensed font and is **not** used.
 - Caveat: these are marketing-site tokens; Cerbo's in-app EHR UI may differ. Good enough to signal product fit; styling isn't graded.
@@ -207,7 +212,7 @@ _Running log of product and architecture decisions. Feeds `prd.md` and `architec
 | Seam | Stub in this build | Real version later |
 |---|---|---|
 | **Auth** | A role switcher in the UI sends a user ID header. The backend has one `current_user` dependency. **Every endpoint enforces role and ownership** (providers see only their orders, patients only theirs, admin only admin screens). | Real login (OAuth/SSO); patient magic links (unguessable per-order links) |
-| **Payments** | `PaymentProvider.charge(amount_cents, idempotency_key, payment_method)`. `FakePaymentProvider` approves by default; test tokens (e.g. `fake_card_decline`) simulate a decline. Same key + amount + method → same result; an approval is permanent; after a decline, a different method is a new attempt (see D5). | Stripe or similar, using the order ID as idempotency key; webhooks for reconciliation |
+| **Payments** | `PaymentProvider.charge(amount_cents, idempotency_key, payment_method)`. `FakePaymentProvider` approves by default; test tokens (e.g. `fake_card_decline`) simulate a decline. Same key + amount + method → same result; an approval is permanent; after a decline, a different method is a new attempt (see D5). | Stripe or similar, with a per-attempt idempotency key (e.g. `order-12-attempt-2`, see D5); webhooks for reconciliation |
 | **Notifications** | `Notifier` interface; the fake logs to the console. The provider UI shows the patient's order link to copy. | Email/SMS service; Cerbo patient portal messaging |
 | **Fulfillment** | `Fulfillment.ship(order)` is called after payment commits; the fake logs "would ship order #N". | Warehouse/shipping partner integration |
 

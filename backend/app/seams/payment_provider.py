@@ -38,6 +38,13 @@ class FakePaymentProvider:
         self.charge_count += 1
         return result
 
+    def reset(self) -> None:
+        """Forget every attempt. Called by the demo reset: order IDs restart at 1
+        after the database is rebuilt, so remembered approvals would otherwise be
+        replayed for brand-new orders that reuse the same ID."""
+        self._attempts.clear()
+        self.charge_count = 0
+
 
 def _result_for(idempotency_key: str, payment_method: str) -> ChargeResult:
     if payment_method == "fake_card_decline":

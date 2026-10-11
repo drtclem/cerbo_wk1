@@ -136,3 +136,58 @@ def test_demo_reset_route_is_absent_when_demo_mode_is_off(tmp_path: Path) -> Non
     with TestClient(application) as client:
         response = client.post("/demo/reset")
         assert response.status_code == 404
+
+
+def test_demo_reset_clears_fake_processor_so_reused_order_ids_can_decline(
+    tmp_path: Path,
+) -> None:
+    # Bug found while filming: after a reset, order IDs restart at 1, and the fake
+    # processor still held order 1's approval, so the decline card "paid" the new
+    # order 1. Reset must clear the processor along with the database.
+    application = _application(tmp_path, demo_mode=True)
+    with TestClient(application) as client:
+        provider_id = _user_id(client, "Dr. Maya Patel")
+        jane_id = _user_id(client, "Jane Doe")
+        catalog = [
+            _require_dict(row)
+            for row in _require_list(
+                client.get("/products", headers=_headers(provider_id)).json()
+            )
+        ]
+        mag = next(_require_int(row["id"]) for row in catalog if row["sku"] == "MAG-GLY")
+        line = {
+            "product_id": mag,
+            "qty": 1,
+            "unit_price_cents": 2_400,
+            "dosing": "Example: 1 capsule daily with a meal",
+            "note": None,
+        }
+
+        def create_order() -> int:
+            created = client.post(
+                "/orders",
+                headers=_headers(provider_id),
+                json={"patient_id": jane_id, "lines": [line]},
+            )
+            assert created.status_code == 200
+            return _require_int(_require_dict(created.json())["id"])
+
+        first = create_order()
+        paid = client.post(
+            f"/orders/{first}/pay",
+            headers=_headers(jane_id),
+            json={"payment_method": "fake_card_ok"},
+        )
+        assert paid.status_code == 200
+
+        assert client.post("/demo/reset").status_code == 204
+
+        second = create_order()
+        assert second == first  # same ID after the rebuild: the case that broke
+        declined = client.post(
+            f"/orders/{second}/pay",
+            headers=_headers(jane_id),
+            json={"payment_method": "fake_card_decline"},
+        )
+        assert declined.status_code == 402
+        assert _require_dict(declined.json()["error"])["code"] == "PAYMENT_DECLINED"
